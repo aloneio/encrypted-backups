@@ -40,6 +40,8 @@ scenario_readme_contract() {
   todo9_require_text '<user-supplied-age1-public-recipient>' "$PROJECT_ROOT/hosts/example/backup.conf" || return 2
   todo9_require_text '<canonical-remote>' "$PROJECT_ROOT/hosts/example/backup.conf" || return 2
   todo9_require_text '<positive-integer>' "$PROJECT_ROOT/hosts/example/backup.conf" || return 2
+  todo9_require_text '每个 host 应使用独立分支，例如 backup/<host-id>' "$PROJECT_ROOT/hosts/example/backup.conf" || return 2
+  todo9_require_text '不会限制旧 Git commit 历史对象或远端托管配额' "$PROJECT_ROOT/hosts/example/backup.conf" || return 2
   if grep -Eq 'github-main|gitlab-main|/srv/example|BACKUP_TOKEN_|GITHUB_TOKEN|GITLAB_TOKEN' "$PROJECT_ROOT/hosts/example/backup.conf"; then
     say_error 'Todo 9 example config contains an old literal or token field'
     return 2
@@ -105,6 +107,19 @@ scenario_readme_local_remotes() {
   todo9_require_text '每个 host 单独计算' || return 2
   todo9_require_text '完整集合' || return 2
   todo9_require_text '远端 CI 保留任务已经移除' || return 2
+}
+
+scenario_readme_remote_retention_and_multi_host() {
+  for text in \
+    '当前分支树中每个 host 可见的完整集合数' \
+    '不会限制 GitLab/GitHub 的总对象存储量' \
+    '一个公开仓库可以备份多个服务器' \
+    '每个服务器必须使用唯一的 `BACKUP_HOST`/`CONFIG_HOST_ID`' \
+    '不同服务器的本地 `flock` 不能跨服务器协调' \
+    'canonical moved after preparation; reprepare required' \
+    '一次只让一个**共享分支**上的 host 完成“准备到发布”流程'; do
+    todo9_require_text "$text" || return 2
+  done
 }
 
 scenario_readme_no_private_key() {

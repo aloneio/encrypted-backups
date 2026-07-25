@@ -152,15 +152,17 @@ scenario_llm_interview_sequence() {
     '1. 仓库 URL' \
     '2. canonical 与有序 mirrors' \
     '3. 自定义备份分支' \
+    '无人值守的多服务器共享仓库应为每个 host 使用独立分支' \
     '4. 用户提供的 age 公钥' \
     '5. 路径选择方式' \
     '6. 排除规则' \
     '7. 公开 metadata 确认' \
     '8. token 安全输入方式' \
-    '9. 本地保留数量' \
-    '10. systemd 运行用户和组' \
-    '11. systemd 计划' \
-    '12. 迁移与遗留状态' \
+    '9. 本地保留数量与远端容量边界' \
+    '10. 多服务器计划' \
+    '11. systemd 运行用户和组' \
+    '12. systemd 计划' \
+    '13. 迁移与遗留状态' \
     '检查服务器和当前仓库' \
     '向用户展示候选路径、排除项、公开 manifest 元数据和风险' \
     '等待用户明确确认路径清单及公开性' \
@@ -173,6 +175,23 @@ scenario_llm_interview_sequence() {
     '用户明确确认可以发布' \
     'BACKUP_HOST=<host> scripts/publish-prepared.sh' \
     '可选 systemd'
+}
+
+scenario_llm_remote_retention_and_multi_host() {
+  for text in \
+    '当前分支树中每个 host 可见的完整集合数' \
+    '不会限制 GitLab/GitHub 的总对象存储量' \
+    '旧归档从新 commit 删除后仍在旧 Git commit 历史中可取得' \
+    '不要为了腾出远端空间自动执行 history rewrite' \
+    '一个公开仓库可以备份多个服务器' \
+    '每个服务器必须使用唯一的 `BACKUP_HOST`/`CONFIG_HOST_ID`' \
+    '无人值守的多服务器共享仓库必须为每个 host 使用独立 `BACKUP_BRANCH`' \
+    '不同 host 分支可独立推进' \
+    '不同服务器的本地 `flock` 不互通' \
+    'canonical moved after preparation; reprepare required' \
+    '一次只让一个 host 完成“准备到发布”流程'; do
+    todo10_require_text "$text" || return 2
+  done
 }
 
 scenario_llm_public_backup_narrative() {
@@ -205,7 +224,7 @@ scenario_llm_final_summary() {
     '解密材料状态：Agent 未接触'; do
     todo10_require_text "$text" || return 2
   done
-  todo10_require_section_order '## 13. 最终汇总模板' \
+  todo10_require_section_order '## 15. 最终汇总模板' \
     '已确认备份路径：' \
     '已确认排除规则：' \
     'canonical：' \

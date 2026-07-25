@@ -142,6 +142,20 @@ BACKUP_HOST=<host> scripts/publish-prepared.sh
 
 `BACKUP_PUSH=1` 是高级兼容快捷方式，不能替代首次部署的检查和用户明确确认。
 
+## 给 Agent：远端容量、历史与多服务器
+
+当前保留策略只限制**当前分支树中每个 host 可见的完整集合数**。例如 `BACKUP_RETENTION_COUNT=3` 时，下一次成功发布会在新 commit 中删除该 host 更旧的归档、checksum 和 manifest；浏览 `main` 时不会像垃圾堆一样堆满旧文件。
+
+但这是追加式 Git 历史：被后续 commit 删除的加密归档仍可从旧 commit 取得，公开 Git 托管端的可达历史对象也不会因为工作树删除而立即回收。因此，它**不会限制 GitLab/GitHub 的总对象存储量**，也不能撤回已经公开过的密文。把 `BACKUP_RETENTION_COUNT` 视为“当前可见恢复点数”，不是“远端历史与配额上限”。Agent 必须在首次配置时向用户说明这一点，并监控远端配额。
+
+不要为了腾出远端空间自动执行 history rewrite、rebase、amend、force push、删除分支或仓库，也不要添加 GitHub Actions/GitLab CI 清理任务。这些操作会破坏已验证的不可变发布模型，而且托管平台何时回收旧对象并不由本工具保证。若用户需要严格有界的远端对象存储，应单独选择带生命周期策略的加密对象存储，或在用户明确批准的迁移窗口轮换到新公开仓库；这不是当前脚本的自动功能。
+
+**一个公开仓库可以备份多个服务器。** 每个服务器必须使用唯一的 `BACKUP_HOST`/`CONFIG_HOST_ID`，各自的 `hosts/<host>/backup.conf`，以及同一组公开 canonical/mirrors。数据按 `backups/<host>/` 和 `manifests/<host>/` 分区；保留只删除当前 host 的完整集合，不会删除其他 host 的集合。每个 host 也有独立 prepared state、systemd service、timer 与 HTTPS env 文件。
+
+对于无人值守的多服务器部署，Agent 应为每个 host 使用独立 `BACKUP_BRANCH`，例如 `backup/<host>`。不同 host 的分支可在同一公开仓库、同一 remote 中独立推进，避免一个 host 发布使另一个 host 的 prepared base 失效。只有部署了跨服务器外部协调锁时，才可让多个 host 共用同一 `BACKUP_BRANCH`。
+
+多台服务器各自使用独立 clone 时，不同服务器的本地 `flock` 不能跨服务器协调。两台服务器从同一 canonical base 同时准备时，先发布的一台会推进 canonical；另一台会安全停止并报告 `canonical moved after preparation; reprepare required`，不得自动合并或强推。为减少这种正常冲突，应为各 host 的 timer 设置错开的 `BACKUP_ON_CALENDAR`/jitter，或使用一个外部协调器；一次只让一个**共享分支**上的 host 完成“准备到发布”流程。
+
 ## 给 Agent：本地保留
 
 本地保留按每个 host 单独计算，一个完整集合由加密归档、对应 checksum 和 manifest 组成；孤立文件会保留并报告，不会被当成可删除备份。保留只在服务器本地执行，远端 CI 保留任务已经移除。

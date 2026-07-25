@@ -64,6 +64,7 @@ README 也是面向 Agent 的简明执行说明；本文是更完整的顺序、
 
 3. 自定义备份分支
    - 询问目标 `BACKUP_BRANCH`，不能擅自假定为 `main`。
+   - 单服务器可使用 `main`；无人值守的多服务器共享仓库应为每个 host 使用独立分支，例如 `backup/<host>`。
    - 当前检出的本地分支必须与它相同。
 
 4. 用户提供的 age 公钥
@@ -87,20 +88,27 @@ README 也是面向 Agent 的简明执行说明；本文是更完整的顺序、
    - SSH、SCP、`file://` 和本地路径使用 Git 原生认证，不需要 token helper。
    - 不接受用户把 token 发到聊天中，也不提供字面 token 命令。
 
-9. 本地保留数量
+9. 本地保留数量与远端容量边界
    - 询问每个 host 的 `BACKUP_RETENTION_COUNT`，必须是正整数。
-   - 默认语义是本机每个 host 保留最近 3 个完整集合。
+   - 默认语义是本机每个 host 在**当前分支树**保留最近 3 个完整集合，不等于 Git 托管端历史对象或配额上限。
+   - 明确告诉用户：旧归档从新 commit 删除后仍在旧 Git commit 历史中可取得；不要承诺远端容量有界或已公开密文可撤回。
 
-10. systemd 运行用户和组
+10. 多服务器计划
+    - 确认每台服务器有唯一的 host 标识和独立 `hosts/<host>/backup.conf`。
+    - 说明可共用一个公开仓库与 mirrors，数据会按 host 分区。
+    - 无人值守时必须为每个 host 配置独立 `BACKUP_BRANCH`，例如 `backup/<host>`；不同 host 分支可独立推进。
+    - 只有用户提供跨服务器外部协调锁时，才允许多个 host 共用同一 canonical 分支；否则询问错开的 `BACKUP_ON_CALENDAR` 或外部协调方案。不同服务器的本地锁不互通。
+
+11. systemd 运行用户和组
     - 询问 `BACKUP_RUN_USER` 与 `BACKUP_RUN_GROUP`。
     - 明确问用户受限路径是否真的要求 root。
     - 默认使用非 root。只有用户确认权限需求后才能显式选择 `BACKUP_RUN_USER=root`。
 
-11. systemd 计划
-    - 询问 `BACKUP_ON_CALENDAR`，例如 `daily` 或 `weekly`。
+12. systemd 计划
+    - 询问 `BACKUP_ON_CALENDAR`，例如 `daily` 或 `weekly`；多服务器共享仓库时应错开计划。
     - 先记录选择，不立即安装。
 
-12. 迁移与遗留状态
+13. 迁移与遗留状态
     - 询问这是否是新仓库，是否曾运行旧版脚本。
     - 询问是否可能存在旧 staged 集合、已有 prepared state、未发布 commit、旧 timer、复制遗留的远端 retention CI 文件或已分叉 mirrors。
 
@@ -240,7 +248,21 @@ BACKUP_HOST=<host> scripts/configure-secrets.sh
 
 如果全部 remote 都是 SSH、SCP、`file://` 或本地路径，记录 `secret 状态` 为不需要，不运行 token helper。
 
-## 8. 第一次准备
+## 8. 远端容量、Git 历史与多服务器共享仓库
+
+`BACKUP_RETENTION_COUNT` 只限制当前分支树中每个 host 可见的完整集合数。例如，保留 3 组时，下一次成功发布会在新 commit 删除该 host 更旧的 archive、checksum 和 manifest；浏览当前分支时不会堆满旧文件。
+
+这不是远端对象存储上限：Git 是追加式历史，后续 commit 删除的加密归档仍能从旧 commit 取得，GitLab/GitHub 也不会仅因当前树删除文件就保证回收历史对象。因此，当前可见保留不会限制 GitLab/GitHub 的总对象存储量；不得承诺远端容量有界，也不得把公开的旧密文当作可撤回数据。Agent 必须在配置前向用户说明这一点，并在最终汇总中说明当前保留数与远端容量边界。
+
+不要为了腾出远端空间自动执行 history rewrite、rebase、amend、force push、删除分支或仓库，也不要添加 GitHub Actions/GitLab CI 清理任务。这些操作会破坏已验证的不可变发布模型，而且托管平台何时回收旧对象并不由本工具保证。若用户需要严格有界的远端对象存储，应单独选择带生命周期策略的加密对象存储，或在用户明确批准的迁移窗口轮换到新公开仓库；这不是当前脚本的自动功能。
+
+一个公开仓库可以备份多个服务器：每个服务器必须使用唯一的 `BACKUP_HOST`/`CONFIG_HOST_ID`、独立 `hosts/<host>/backup.conf`、同一公开 canonical/mirrors。文件按 `backups/<host>/` 与 `manifests/<host>/` 分区；retention 只处理当前 host 的完整集合；prepared state、systemd service、timer 与 env 文件也按 host 独立。
+
+无人值守的多服务器共享仓库必须为每个 host 使用独立 `BACKUP_BRANCH`，例如 `backup/<host>`。不同 host 分支可独立推进，因此一个 host 发布不会使另一个 host 的 prepared base 失效。只有用户提供跨服务器外部协调锁时，才允许多个 host 共用同一 canonical 分支。
+
+不同服务器的本地 `flock` 不互通。若两台服务器从同一个 canonical base 同时准备，先发布的会推进 canonical，后发布的必须安全停止并报告 `canonical moved after preparation; reprepare required`。不得自动合并或强推。共享分支时，要求用户为各 host 设置错开的 `BACKUP_ON_CALENDAR`/jitter，或使用外部协调器；一次只让一个 host 完成“准备到发布”流程。
+
+## 10. 第一次准备
 
 再次确认 `git status --short` 没有输出，然后只准备：
 
@@ -250,7 +272,7 @@ BACKUP_HOST=<host> BACKUP_PUSH=0 scripts/backup.sh
 
 不要在首次确认前推荐任何一步准备加发布的兼容快捷方式。准备成功后，不要再次运行准备命令。
 
-## 9. 检查严格 prepared state 与产物
+## 11. 检查严格 prepared state 与产物
 
 从 `latest.txt` 和 prepared state 取得当前 artifact 标识与精确路径。完整检查：
 
@@ -277,7 +299,7 @@ sha256sum -c backups/<host>/<artifact-id>.sha256
 
 如果任一检查失败，停止，不发布。先记录失败点，再由用户决定如何人工清理无效 prepared 状态和对应暂存产物。不得自动删除或重置。
 
-## 10. 明确确认后发布
+## 12. 明确确认后发布
 
 向用户展示以下检查结果，不含 secret：
 
@@ -286,7 +308,9 @@ sha256sum -c backups/<host>/<artifact-id>.sha256
 - prepared base OID；
 - canonical、mirrors 与 branch；
 - 用户控制的外部恢复处理结果；
-- 本地 retention 删除清单。
+- 本地 retention 删除清单；
+- 当前分支树的每 host 保留数，以及“Git 历史对象仍可能继续占用远端空间”的容量边界；
+- 多服务器计划（host 标识与错开/协调状态）。
 
 只有用户明确确认可以发布，才运行：
 
@@ -302,7 +326,7 @@ retention 回滚数据必须先持久化到 `.git/local-backup-push-kit/recovery
 
 若部分 mirror 失败，记录 commit OID、每个远端 OID 和待处理 mirrors。再次运行同一条 `scripts/publish-prepared.sh` 命令，只重试同一个 commit OID。不要重新准备归档，不要改写 canonical，不要强制更新 mirror。
 
-## 11. 可选 systemd
+## 13. 可选 systemd
 
 只有用户在访谈中选择自动运行后才继续。先渲染，不写系统目录：
 
@@ -328,7 +352,7 @@ BACKUP_HOST=<host> scripts/install-systemd-timer.sh --migrate-legacy
 
 若选择 `BACKUP_RUN_USER=root`，确认 service 的 `ExecStart` 指向 `${BACKUP_ROOT_LAUNCHER_DIR:-/usr/local/libexec/local-backup-push-kit}/backup-launcher`，不能直接指向仓库中的 `scripts/backup.sh`。launcher、service 与 timer 必须作为同一安装事务回滚。
 
-## 12. 失败与迁移决策树
+## 14. 失败与迁移决策树
 
 ### 缺少用户提供的 age 公钥
 
@@ -380,7 +404,7 @@ canonical 是唯一同步基准。准备前本地只能与 canonical 相同或�
 
 停止发布。报告 checksum、只读列表或预期文件检查中的失败项，不接触解密材料。由用户在外部恢复环境修正验证流程，或者人工放弃该 prepared set。
 
-## 13. 最终汇总模板
+## 15. 最终汇总模板
 
 完成或停止时都要给出下面的汇总。汇总不含 token 值、公钥完整值、解密材料或恢复明文。对应解密材料由用户在仓库和服务器自动化流程之外离线保管，Agent 不接触。
 

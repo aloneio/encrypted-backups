@@ -751,6 +751,48 @@ scenario_multi_host_staged() {
   return 2
 }
 
+scenario_multi_host_independent_branches() {
+  local fixture repo data_a data_b canonical output state_a state_b remote_a remote_b
+  local -a environment
+  new_fixture multi-host-independent-branches || return 2
+  fixture="$FIXTURE"
+  repo="$fixture/repo"
+  data_a="$fixture/data-a"
+  data_b="$fixture/data-b"
+  canonical="$fixture/canonical.git"
+  copy_template "$repo"
+  install_common_shims "$fixture"
+  rm -f "$fixture/bin/git"
+  mkdir -p "$data_a" "$data_b"
+  printf 'host-a\n' >"$data_a/payload"
+  printf 'host-b\n' >"$data_b/payload"
+  write_full_config "$repo" host-a host-a "$TEST_AGE_RECIPIENT" backup/host-a "$data_a"
+  write_full_config "$repo" host-b host-b "$TEST_AGE_RECIPIENT" backup/host-b "$data_b"
+  init_real_repo "$repo" || return 2
+  /usr/bin/git -C "$repo" branch backup/host-a
+  /usr/bin/git -C "$repo" branch backup/host-b
+  /usr/bin/git init -q --bare "$canonical" || return 2
+  /usr/bin/git -C "$repo" remote add origin "$canonical" || return 2
+  /usr/bin/git -C "$repo" checkout -q backup/host-a
+  run_fixture_backup_env "$fixture" "$repo" host-a "$fixture/prepare-a.log" 0 || return 2
+  state_a="$repo/.git/local-backup-push-kit/prepared/host-a.state"
+  [[ -f "$state_a" ]] || return 2
+  mapfile -t environment < <(fixture_env "$fixture")
+  run_captured "$fixture/publish-a.log" 15 env "${environment[@]}" BACKUP_HOST=host-a bash "$repo/scripts/publish-prepared.sh" || return 2
+  remote_a="$(/usr/bin/git --git-dir="$canonical" rev-parse refs/heads/backup/host-a)" || return 2
+  /usr/bin/git -C "$repo" checkout -q backup/host-b
+  run_fixture_backup_env "$fixture" "$repo" host-b "$fixture/prepare-b.log" 0 || return 2
+  state_b="$repo/.git/local-backup-push-kit/prepared/host-b.state"
+  [[ -f "$state_b" ]] || return 2
+  run_captured "$fixture/publish-b.log" 15 env "${environment[@]}" BACKUP_HOST=host-b bash "$repo/scripts/publish-prepared.sh" || return 2
+  remote_b="$(/usr/bin/git --git-dir="$canonical" rev-parse refs/heads/backup/host-b)" || return 2
+  [[ "$remote_a" != "$remote_b" && "$(/usr/bin/git --git-dir="$canonical" merge-base "$remote_a" "$remote_b")" == "$(/usr/bin/git -C "$repo" rev-parse main)" ]] || return 2
+  /usr/bin/git --git-dir="$canonical" ls-tree -r --name-only "$remote_a" | grep -Fxq 'backups/host-a/latest.txt' || return 2
+  /usr/bin/git --git-dir="$canonical" ls-tree -r --name-only "$remote_b" | grep -Fxq 'backups/host-b/latest.txt' || return 2
+  ! /usr/bin/git --git-dir="$canonical" ls-tree -r --name-only "$remote_a" | grep -Fq 'backups/host-b/' || return 2
+  ! /usr/bin/git --git-dir="$canonical" ls-tree -r --name-only "$remote_b" | grep -Fq 'backups/host-a/' || return 2
+}
+
 scenario_empty_remote() {
   local fixture repo data bare output status
   new_fixture empty-remote || return 2
@@ -936,11 +978,11 @@ scenario_harness_concurrency() {
   first_output="$RUN_ROOT/concurrency-a.log"
   second_output="$RUN_ROOT/concurrency-b.log"
   root_file="$RUN_ROOT/concurrency-root"
-  env LOCAL_BACKUP_TEST_HOLD_SECONDS=2 LOCAL_BACKUP_TEST_RUN_ROOT_FILE="$root_file" bash "$TESTS_DIR/run.sh" baseline >"$first_output" 2>&1 &
+  env LOCAL_BACKUP_TEST_HOLD_SECONDS=5 LOCAL_BACKUP_TEST_RUN_ROOT_FILE="$root_file" bash "$TESTS_DIR/run.sh" baseline >"$first_output" 2>&1 &
   first_pid=$!
   first_root=""
   first_fixture=""
-  for _ in 1 2 3 4 5 6 7 8 9 10; do
+  for _ in $(seq 1 40); do
     if [[ -s "$root_file" ]]; then
       first_root="$(<"$root_file")"
       first_fixture="$(compgen -G "$first_root/fixture-baseline.*" || true)"
@@ -1521,6 +1563,7 @@ run_selector_function() {
     readme-contract) scenario_readme_contract ;;
     readme-novice-flow) scenario_readme_novice_flow ;;
     readme-local-remotes) scenario_readme_local_remotes ;;
+    readme-remote-retention-multi-host) scenario_readme_remote_retention_and_multi_host ;;
     readme-no-private-key) scenario_readme_no_private_key ;;
     readme-private-backup-repo) scenario_readme_private_backup_repo ;;
     readme-public-curl-gate) scenario_readme_public_curl_gate ;;
@@ -1529,6 +1572,7 @@ run_selector_function() {
     llm-interview-sequence) scenario_llm_interview_sequence ;;
     llm-final-summary) scenario_llm_final_summary ;;
     llm-public-backup-narrative) scenario_llm_public_backup_narrative ;;
+    llm-remote-retention-multi-host) scenario_llm_remote_retention_and_multi_host ;;
     llm-missing-public-key) scenario_llm_missing_public_key ;;
     llm-private-raw-url) scenario_llm_private_raw_url ;;
     llm-root-paths) scenario_llm_root_paths ;;
@@ -1618,6 +1662,7 @@ run_selector_function() {
     retention) scenario_retention ;;
     retention-failure) scenario_retention_failure ;;
     multi-host) scenario_retention_multi_host ;;
+    multi-host-independent-branches) scenario_multi_host_independent_branches ;;
     retention-old-new) scenario_retention_old_new ;;
     retention-multi-host) scenario_retention_multi_host ;;
     latest-repair) scenario_latest_repair ;;
