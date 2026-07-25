@@ -1197,6 +1197,32 @@ scenario_config_timeout_canonical() {
   invalid_config_rejected lock-leading-zero host-a host-a "$TEST_AGE_RECIPIENT" main 0 3 0030
 }
 
+scenario_config_symlink_rejected() {
+  local fixture repo data output status outside marker
+  setup_fake_backup_fixture config-symlink || return 2
+  fixture="$FIXTURE" repo="$REPO" data="$DATA"
+  outside="$fixture/outside.conf"
+  marker="$fixture/config-sourced"
+  cat >"$outside" <<EOF
+: > "$marker"
+CONFIG_HOST_ID="host-a"
+AGE_RECIPIENT="$TEST_AGE_RECIPIENT"
+BACKUP_BRANCH="main"
+BACKUP_PATHS=("$data")
+BACKUP_REMOTES=(origin)
+EOF
+  rm -f -- "$repo/hosts/host-a/backup.conf"
+  ln -s "$outside" "$repo/hosts/host-a/backup.conf" || return 2
+  output="$fixture/output.log"
+  run_fake_backup "$fixture" "$repo" host-a "$output" 0
+  status=$?
+  if [[ "$status" -eq 0 || -e "$marker" || -s "$fixture/tar.log" || -e "$repo/backups" || -e "$repo/manifests" ]] || grep -Fq ' add ' "$fixture/git.log" 2>/dev/null; then
+    say_error "symlinked config was not rejected before sourcing or mutation"
+    return 2
+  fi
+  grep -Fq 'missing or unsafe config' "$output" || return 2
+}
+
 scenario_config_validation() {
   local valid="$TEST_AGE_RECIPIENT"
   invalid_config_rejected push host-a host-a "$valid" main 2 3 30 || return 2
@@ -1238,6 +1264,7 @@ scenario_config_validation() {
   invalid_config_rejected recipient-short host-a host-a age1x main 0 3 30 || return 2
   invalid_config_rejected recipient-empty host-a host-a '' main 0 3 30 || return 2
   scalar_paths_rejected || return 2
+  scenario_config_symlink_rejected || return 2
   dirty_repo_rejected || return 2
   missing_dependency_rejected || return 2
   valid_config_accepted valid-minimum main 1 0 || return 2

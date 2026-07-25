@@ -30,7 +30,7 @@ main() {
   preflight_commands
   HOST_ID="${BACKUP_HOST-$(hostname -s)}"
   CONFIG_FILE="${BACKUP_CONFIG:-${REPO_DIR}/hosts/${HOST_ID}/backup.conf}"
-  [[ -f "$CONFIG_FILE" ]] || fail "missing config: $CONFIG_FILE"
+  [[ -f "$CONFIG_FILE" && ! -L "$CONFIG_FILE" ]] || fail "missing or unsafe config: $CONFIG_FILE"
   # shellcheck source=/dev/null
   source "$CONFIG_FILE"
   PUSH="${BACKUP_PUSH:-0}"
