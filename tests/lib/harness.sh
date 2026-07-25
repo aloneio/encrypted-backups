@@ -1528,6 +1528,7 @@ run_selector_function() {
     llm-guide-contract) scenario_llm_guide_contract ;;
     llm-interview-sequence) scenario_llm_interview_sequence ;;
     llm-final-summary) scenario_llm_final_summary ;;
+    llm-public-backup-narrative) scenario_llm_public_backup_narrative ;;
     llm-missing-public-key) scenario_llm_missing_public_key ;;
     llm-private-raw-url) scenario_llm_private_raw_url ;;
     llm-root-paths) scenario_llm_root_paths ;;

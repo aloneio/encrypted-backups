@@ -1,28 +1,30 @@
 https://gitlab.com/aloneio/local-backup-push-kit/-/raw/main/docs/llm-setup-guide.zh.md
 
-# LLM 服务器部署指南
+# Agent 服务器部署与公开备份执行指南
 
-## 获取与发布门禁
+你是部署 Agent。用户把本固定 URL 交给你，表示希望你在其服务器上配置并执行 Local Backup Push Kit。本文是**给 Agent 的操作规程**，不是给用户的概念介绍：你要在用户确认的边界内做检查、访谈、配置、准备、验证、发布和汇总。
 
-模板和指令仓库必须公开，外部 LLM 才能通过匿名 `curl` 读取本指南。实际备份仓库必须保持私有。若上述固定 URL 不能被匿名读取，或返回的不是本指南，属于发布阻塞项：停止部署与发布，不得改用替代 URL 冒充通过。
+## 0. 目标、公开性与不可违反的边界
 
-## 目标与边界
+目标是在拥有备份源数据的服务器上，将用户确认的路径打包，用用户提供的 age 公钥加密，并发布到**公开 Git 备份仓库**。
 
-你要在拥有备份源数据的服务器上完成检查、访谈、配置、首次准备、人工确认后的发布，以及用户选择后的 systemd 安装。不要只给概念说明。
+公开备份仓库是产品要求，不是错误：用户忘记代码托管账户密码、失去私有仓库访问权后，仍能匿名取得加密归档；持有离线解密材料的用户仍可恢复。公开仓库不含任何解密材料、token 或恢复明文，但 manifest 会暴露元数据。开始前必须让用户确认公开以下内容可以接受：host 标识、源路径、归档名、时间、SHA256、Git 提交和 remote URL。
 
-必须遵守这些边界：
+必须遵守：
 
-- 只接受用户提供的 `age1...` 公钥。不得代用户生成密钥，不得索取、读取、显示或保存任何私钥。
-- 私钥由用户在仓库和服务器自动化流程之外离线保管，Agent 不接触。
+- 只接受用户提供的 `age1...` 公钥。不得代用户生成密钥，不得索取、读取、显示或保存任何解密材料。
+- 对应解密材料由用户在仓库和服务器自动化流程之外离线保管，Agent 不接触。
 - token 不得出现在仓库、命令参数、shell 历史、环境变量字面导出、日志或最终汇总中。
-- 恢复必需的配置与 secret 可以作为备份源收入加密归档，但不得以明文写进 Git 仓库。
+- 恢复必需的配置与 secret 可以作为备份源收入加密归档，但不得以明文写进 Git 仓库；其路径会进入公开 manifest。
 - 第一次流程必须先准备、检查、等待确认，再发布同一份 prepared 数据。
 - 所有异常默认停止并报告。不得自动 reset、清理历史、删除旧归档、改写 commit、解决分叉或强制推送。
-- 不访问本文固定 URL，不访问真实远端，不使用真实凭据，除非用户正在实际部署且明确要求执行对应联网步骤。本地检查阶段只读取服务器和当前仓库。
+- 不访问真实远端、不使用真实凭据，除非用户正在实际部署且明确要求执行对应联网步骤。本地检查阶段只读取服务器和当前仓库。
 
-## 先完整读取当前版本
+## 1. 先完整读取当前版本
 
-进入备份仓库根目录后，使用 `cat` 完整读取所有相关文件。不能用只读前几百行的截断读取方式。
+确认本文第一行正是固定 raw URL。此 URL 必须可被匿名 `curl` 读取；如果失败，报告文档获取问题并停止，不得改用替代 URL 冒充通过。
+
+进入备份仓库根目录后，用 `cat` 完整读取当前文件。不能只读取前几百行，不能根据旧文档猜测脚本行为：
 
 ```bash
 cat README.md
@@ -44,19 +46,19 @@ cat scripts/lib/prepare.sh
 cat scripts/lib/retention.sh
 ```
 
-如果文件比工具单次读取上限更长，使用覆盖到文件末尾的连续完整范围读取，并确认没有遗漏。不要根据旧文档猜测脚本行为。
+README 也是面向 Agent 的简明执行说明；本文是更完整的顺序、决策树和汇总约定。若 README、本文和脚本存在差异，以当前脚本行为为准，并停止向用户澄清。
 
-## 有序访谈
+## 2. 有序访谈：未完成前不写配置
 
-请按下面顺序逐项提问。能从服务器检查出的内容可以先给建议，但每项最终决定都要由用户确认。
+请按下面顺序逐项提问。可以先根据服务器做建议，但每项最终决定都必须由用户确认。
 
 1. 仓库 URL
-   - 收集每个实际备份仓库的 URL。
-   - 说明实际备份仓库应为私有。
+   - 收集每个**公开**备份仓库的 URL。
+   - 说明仓库公开的目的：账户访问丢失时仍可下载密文；说明 manifest 元数据也会公开。
    - 不把 token 嵌入 URL。
 
 2. canonical 与有序 mirrors
-   - 让用户指定哪个 remote 是唯一 canonical。
+   - 让用户指定唯一 canonical。
    - 让用户按发布顺序列出 mirrors。
    - 明确 `BACKUP_REMOTES[0]` 是 canonical，后续项才是 mirrors。
 
@@ -66,7 +68,7 @@ cat scripts/lib/retention.sh
 
 4. 用户提供的 age 公钥
    - 只接收用户提供的 `age1...` 公钥接收方。
-   - 如果用户还没有准备好，转到“缺少用户提供的 age 公钥”停止分支。
+   - 如果用户尚未准备好，转到“缺少用户提供的 age 公钥”停止分支。
 
 5. 路径选择方式
    - 让用户选择“Agent 检查服务器后建议”或“用户直接指定”。
@@ -76,31 +78,35 @@ cat scripts/lib/retention.sh
    - 逐项确认 `TAR_EXCLUDES`。
    - 提醒用户不要排除恢复服务必需的配置、证书、环境文件、一致性数据库导出或其他关键数据。
 
-7. token 安全输入方式
+7. 公开 metadata 确认
+   - 回显候选 host 标识、收入路径、归档命名和可能出现在 manifest 的内容。
+   - 等待用户明确确认这些元数据可公开；未确认则不写配置。
+
+8. token 安全输入方式
    - HTTP(S) remote 只能通过 `scripts/configure-secrets.sh` 无回显输入。
    - SSH、SCP、`file://` 和本地路径使用 Git 原生认证，不需要 token helper。
    - 不接受用户把 token 发到聊天中，也不提供字面 token 命令。
 
-8. 本地保留数量
+9. 本地保留数量
    - 询问每个 host 的 `BACKUP_RETENTION_COUNT`，必须是正整数。
    - 默认语义是本机每个 host 保留最近 3 个完整集合。
 
-9. systemd 运行用户和组
-   - 询问 `BACKUP_RUN_USER` 与 `BACKUP_RUN_GROUP`。
-   - 明确问用户受限路径是否真的要求 root。
-   - 默认使用非 root。只有用户确认权限需求后才能显式选择 `BACKUP_RUN_USER=root`。
+10. systemd 运行用户和组
+    - 询问 `BACKUP_RUN_USER` 与 `BACKUP_RUN_GROUP`。
+    - 明确问用户受限路径是否真的要求 root。
+    - 默认使用非 root。只有用户确认权限需求后才能显式选择 `BACKUP_RUN_USER=root`。
 
-10. systemd 计划
+11. systemd 计划
     - 询问 `BACKUP_ON_CALENDAR`，例如 `daily` 或 `weekly`。
     - 先记录选择，不立即安装。
 
-11. 迁移与遗留状态
+12. 迁移与遗留状态
     - 询问这是否是新仓库，是否曾运行旧版脚本。
     - 询问是否可能存在旧 staged 集合、已有 prepared state、未发布 commit、旧 timer、复制遗留的远端 retention CI 文件或已分叉 mirrors。
 
 访谈未完成时不要写配置，不要收集 token，不要准备备份，也不要安装 systemd。
 
-## 检查服务器和当前仓库
+## 3. 检查服务器和当前仓库
 
 先做只读检查：
 
@@ -122,15 +128,15 @@ command -v flock
 command -v python3
 ```
 
-检查 remote 时记录每个名称、fetch URL、push URL 和传输类型。确认每个 remote 只有一个 fetch URL 和一个 push URL，且两者传输类型一致。不要打印凭据。
+检查 remote 时记录名称、fetch URL、push URL 和传输类型。每个 remote 必须只有一个 fetch URL 和一个 push URL，且两者传输类型一致。不要打印凭据。
 
-如果用户选择 Agent 建议路径，检查服务定义、compose 文件、systemd unit、应用配置、小型持久化数据、一致性数据库导出和恢复说明。只做有界、只读检查，不读取 secret 内容。可以检查路径名、文件类型、权限和大小，用这些信息提出候选项。
+若用户选择 Agent 建议路径，检查服务定义、compose 文件、systemd unit、应用配置、小型持久化数据、一致性数据库导出和恢复说明。只做有界、只读检查，不读取 secret 内容。可以检查路径名、文件类型、权限和大小，用这些信息提出候选项。
 
-如果用户直接指定路径，也要逐项验证。每项必须存在、是绝对路径、不是重复路径，不能是备份仓库本身、仓库子路径、仓库祖先，也不能包含符号链接组件。根目录 `/` 也是仓库祖先风险，必须拒绝。
+若用户直接指定路径，也要逐项验证。每项必须存在、是绝对路径、不是重复路径，不能是备份仓库本身、仓库子路径、仓库祖先，也不能包含符号链接组件。根目录 `/` 也是仓库祖先风险，必须拒绝。
 
-向用户展示候选路径、排除项和风险，说明 manifest 会暴露 host、时间、归档名、SHA256 和收入归档的源路径。等待用户明确确认路径清单。得到确认之前，不得写入 `hosts/<host>/backup.conf`。
+向用户展示候选路径、排除项、公开 manifest 元数据和风险。等待用户明确确认路径清单及公开性；得到确认之前，不得写入 `hosts/<host>/backup.conf`。
 
-## 迁移预检
+## 4. 迁移预检
 
 如果仓库不是全新部署，或者用户不能确认遗留状态，先运行只报告模式：
 
@@ -148,21 +154,21 @@ BACKUP_HOST=<host> scripts/migrate-legacy.sh --adopt-staged
 
 不得自动采用旧集合。
 
-## 写入配置前的确认记录
+## 5. 写入配置前的确认记录
 
 向用户回显以下非敏感选择，等待明确确认：
 
-- host 标识
-- 备份仓库本地路径
-- remote 名称、URL、canonical 与有序 mirrors
-- 自定义分支
-- age 公钥已收到且格式为 `age1...`，不回显完整值
-- 精确备份路径
-- 精确排除规则
-- 本地保留数量
-- systemd 用户、组和计划
-- 是否确实需要 root
-- 迁移报告状态
+- host 标识；
+- 备份仓库本地路径；
+- 公开 remote 名称、URL、canonical 与有序 mirrors；
+- 自定义分支；
+- age 公钥已收到且格式为 `age1...`，不回显完整值；
+- 精确备份路径和精确排除规则；
+- 将公开的 manifest 元数据和用户明确确认结果；
+- 本地保留数量；
+- systemd 用户、组和计划；
+- 是否确实需要 root；
+- 迁移报告状态。
 
 确认后才创建 host 配置：
 
@@ -196,7 +202,7 @@ TAR_EXCLUDES=(
 
 不要在配置中写 token、明文恢复数据或任何解密材料。
 
-## 创建初始模板与配置提交
+## 6. 创建初始模板与配置提交
 
 第一次准备前，仓库必须已经有模板与 host 配置的初始提交，而且工作区和暂存区必须干净。先检查差异，再精确暂存模板与配置文件：
 
@@ -212,13 +218,13 @@ git status --short
 
 canonical 的目标分支为空时，可以从这个本地初始模板提交引导。canonical 已有该分支时，本地只能安全快进到它。若本地超前、存在未发布 commit、双方分叉或历史过旧，停止并报告 OID。不得在这种状态下准备备份。
 
-## 配置远端与安全凭据
+## 7. 配置远端与安全凭据
 
 按用户确认的名称添加或校正 remote。remote 名不能硬编码成平台名称：
 
 ```bash
-git remote add <canonical-remote> <repository-url>
-git remote add <mirror-remote> <repository-url>
+git remote add <canonical-remote> <public-backup-repository-url>
+git remote add <mirror-remote> <public-mirror-repository-url>
 git remote -v
 ```
 
@@ -234,7 +240,7 @@ BACKUP_HOST=<host> scripts/configure-secrets.sh
 
 如果全部 remote 都是 SSH、SCP、`file://` 或本地路径，记录 `secret 状态` 为不需要，不运行 token helper。
 
-## 第一次准备
+## 8. 第一次准备
 
 再次确认 `git status --short` 没有输出，然后只准备：
 
@@ -244,7 +250,7 @@ BACKUP_HOST=<host> BACKUP_PUSH=0 scripts/backup.sh
 
 不要在首次确认前推荐任何一步准备加发布的兼容快捷方式。准备成功后，不要再次运行准备命令。
 
-## 检查严格 prepared state 与产物
+## 9. 检查严格 prepared state 与产物
 
 从 `latest.txt` 和 prepared state 取得当前 artifact 标识与精确路径。完整检查：
 
@@ -264,23 +270,23 @@ sha256sum -c backups/<host>/<artifact-id>.sha256
 - prepared state 的 host、branch、有序 remotes、base OID、artifact ID、精确路径与 SHA256 都与文件一致。
 - 加密归档、checksum、manifest 和 `latest.txt` 都存在，且都是安全的普通文件。
 - checksum 验证成功。
-- manifest 的收入路径与用户确认清单一致，没有意外元数据。
+- manifest 的收入路径与用户确认清单一致，且其公开性已经得到确认。
 - 本地保留策略按 host 单独计算，只保留 `BACKUP_RETENTION_COUNT` 个完整集合。完整集合由加密归档、checksum 和 manifest 组成。孤立文件应报告并保留。
 
 加密内容验证只能在用户控制的仓库外部临时恢复目录完成。由用户控制的外部恢复处理验证归档可解密、可只读列出并包含预期恢复文件。Agent 不接触用户离线保管的解密材料，也不在源仓库中生成恢复明文。验证结束后，由用户清理外部临时恢复目录中的明文。
 
 如果任一检查失败，停止，不发布。先记录失败点，再由用户决定如何人工清理无效 prepared 状态和对应暂存产物。不得自动删除或重置。
 
-## 明确确认后发布
+## 10. 明确确认后发布
 
 向用户展示以下检查结果，不含 secret：
 
-- artifact 精确路径和 SHA256 结果
-- manifest 收入路径
-- prepared base OID
-- canonical、mirrors 与 branch
-- 用户控制的外部恢复处理结果
-- 本地 retention 删除清单
+- artifact 精确路径和 SHA256 结果；
+- 公开 manifest 收入路径与 metadata 确认状态；
+- prepared base OID；
+- canonical、mirrors 与 branch；
+- 用户控制的外部恢复处理结果；
+- 本地 retention 删除清单。
 
 只有用户明确确认可以发布，才运行：
 
@@ -296,7 +302,7 @@ retention 回滚数据必须先持久化到 `.git/local-backup-push-kit/recovery
 
 若部分 mirror 失败，记录 commit OID、每个远端 OID 和待处理 mirrors。再次运行同一条 `scripts/publish-prepared.sh` 命令，只重试同一个 commit OID。不要重新准备归档，不要改写 canonical，不要强制更新 mirror。
 
-## 可选 systemd
+## 11. 可选 systemd
 
 只有用户在访谈中选择自动运行后才继续。先渲染，不写系统目录：
 
@@ -322,7 +328,7 @@ BACKUP_HOST=<host> scripts/install-systemd-timer.sh --migrate-legacy
 
 若选择 `BACKUP_RUN_USER=root`，确认 service 的 `ExecStart` 指向 `${BACKUP_ROOT_LAUNCHER_DIR:-/usr/local/libexec/local-backup-push-kit}/backup-launcher`，不能直接指向仓库中的 `scripts/backup.sh`。launcher、service 与 timer 必须作为同一安装事务回滚。
 
-## 失败与迁移决策树
+## 12. 失败与迁移决策树
 
 ### 缺少用户提供的 age 公钥
 
@@ -330,7 +336,11 @@ BACKUP_HOST=<host> scripts/install-systemd-timer.sh --migrate-legacy
 
 ### 固定 URL 匿名读取失败
 
-停止发布，报告外部发布阻塞。不得改用替代 URL，不得声称发布门禁通过。项目公开并由匿名 `curl` 实际读取成功后，才能解除阻塞。
+停止部署并报告文档获取问题。不得改用替代 URL，不得声称已读取当前 Agent 指南。固定 URL 恢复匿名读取后，重新完整阅读本文再继续。
+
+### 公开 metadata 未确认
+
+停止。不写配置、不准备、不发布。向用户展示将公开的 host、源路径、归档名、时间和 SHA256；等待明确确认，或让用户调整路径、host 标识与命名后重新确认。
 
 ### 路径不安全或需要 root
 
@@ -370,13 +380,14 @@ canonical 是唯一同步基准。准备前本地只能与 canonical 相同或�
 
 停止发布。报告 checksum、只读列表或预期文件检查中的失败项，不接触解密材料。由用户在外部恢复环境修正验证流程，或者人工放弃该 prepared set。
 
-## 最终汇总模板
+## 13. 最终汇总模板
 
-完成或停止时都要给出下面的汇总。汇总不含 token 值、公钥完整值、解密材料或恢复明文。私钥由用户在仓库和服务器自动化流程之外离线保管，Agent 不接触。
+完成或停止时都要给出下面的汇总。汇总不含 token 值、公钥完整值、解密材料或恢复明文。对应解密材料由用户在仓库和服务器自动化流程之外离线保管，Agent 不接触。
 
 ```text
 备份主机：<host>
 备份仓库本地路径：<repo-path>
+公开备份仓库：<url>
 
 已确认备份路径：
 - <exact-path-1>
@@ -386,6 +397,7 @@ canonical 是唯一同步基准。准备前本地只能与 canonical 相同或�
 - <exact-exclusion-1>
 - <exact-exclusion-2>
 
+已确认公开 metadata：<host/source-paths/artifact-name/time/sha256>
 canonical：<remote-name> -> <url>
 有序 mirrors：
 - <remote-name> -> <url>
@@ -409,7 +421,7 @@ prepared base OID：<oid-or-empty-branch>
 外部恢复处理：<confirmed/failed/not-run>
 secret 状态：<configured-or-not-needed>
 age 公钥状态：已配置用户提供的公钥，不显示值
-私钥状态：Agent 未接触
+解密材料状态：Agent 未接触
 最终状态：<prepared-awaiting-confirmation/published/blocked/failed>
 ```
 

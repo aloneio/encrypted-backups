@@ -111,24 +111,26 @@ scenario_readme_no_private_key() {
   local output="$RUN_ROOT/todo9-source-policy.log"
   run_captured "$output" 10 bash "$PROJECT_ROOT/scripts/check-source-only.sh" || return 2
   todo9_reject_pattern 'age-keygen|age[[:space:]]+-d|age[[:space:]].*-i[[:space:]]|identity\.txt|私钥命令|私钥内容' || return 2
-  todo9_require_text '私钥由用户离线保管' || return 2
+  todo9_require_text '对应解密材料由用户离线保管' || return 2
   todo9_require_text 'Agent 不接触' || return 2
 }
 
 scenario_readme_private_backup_repo() {
-  todo9_require_text '模板和指令仓库必须公开' || return 2
-  todo9_require_text '实际备份仓库应设为私有' || return 2
-  todo9_require_text 'manifest 会暴露' || return 2
-  todo9_require_text '恢复必需的配置文件和 secret 应作为备份源加密收入归档' || return 2
-  todo9_require_text '不要把明文 secret 写进 Git 仓库' || return 2
+  todo9_require_text '公开 Git 备份仓库' || return 2
+  todo9_require_text '匿名取得公开仓库中的加密备份' || return 2
+  todo9_require_text '本文是给部署 Agent 看的执行说明' || return 2
+  todo9_require_text '固定的详细指令' || return 2
+  todo9_require_text '公开 Git 备份仓库不含任何解密材料、token 或恢复明文' || return 2
+  todo9_require_text '用户确认公开' || return 2
+  todo9_reject_pattern '实际备份仓库应设为私有|实际备份仓库必须保持私有|实际备份仓库均为私有'
 }
 
 scenario_readme_public_curl_gate() {
   todo9_require_text "$TODO9_RAW_URL" || return 2
-  todo9_require_text '匿名 `curl`' || return 2
-  todo9_require_text '403' || return 2
-  todo9_require_text '发布阻塞项' || return 2
-  todo9_require_text '不能宣称检查已经通过' || return 2
+  todo9_require_text '固定指南 URL' || return 2
+  todo9_require_text '可匿名读取' || return 2
+  todo9_require_text '不得改用替代 URL' || return 2
+  todo9_require_text '不能根据截断片段或旧文档猜测行为' || return 2
 }
 
 scenario_prepared_state_diagnostic() {

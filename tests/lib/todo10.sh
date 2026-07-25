@@ -79,9 +79,13 @@ PY
     return 2
   }
   for text in \
-    '模板和指令仓库必须公开' \
-    '匿名 `curl`' \
-    '发布阻塞项' \
+    '公开 Git 备份仓库' \
+    '忘记代码托管账户密码' \
+    'manifest 元数据' \
+    'README 也是面向 Agent 的简明执行说明' \
+    '固定 URL 匿名读取失败' \
+    '文档获取问题' \
+    '不得改用替代 URL' \
     'cat README.md' \
     'cat scripts/backup.sh' \
     'cat scripts/publish-prepared.sh' \
@@ -121,7 +125,9 @@ PY
   todo10_reject_pattern 'git[[:space:]]+(reset|clean)|git[[:space:]]+push[^\n]*--force|git[[:space:]]+rebase' || return 2
   todo10_reject_pattern '暂存区[^。\n]*retention 删除项' || return 2
   todo10_require_text '只接受用户提供的 `age1...` 公钥' || return 2
-  todo10_require_text '私钥由用户在仓库和服务器自动化流程之外离线保管，Agent 不接触' || return 2
+  todo10_require_text '公开 manifest 元数据' || return 2
+  todo10_require_text '用户明确确认这些元数据可公开' || return 2
+  todo10_require_text 'manifest 元数据也会公开' || return 2
   todo10_require_text 'HTTP(S)' || return 2
   todo10_require_text 'SSH、SCP、`file://` 和本地路径' || return 2
   todo10_require_text 'BACKUP_RETENTION_COUNT' || return 2
@@ -149,14 +155,15 @@ scenario_llm_interview_sequence() {
     '4. 用户提供的 age 公钥' \
     '5. 路径选择方式' \
     '6. 排除规则' \
-    '7. token 安全输入方式' \
-    '8. 本地保留数量' \
-    '9. systemd 运行用户和组' \
-    '10. systemd 计划' \
-    '11. 迁移与遗留状态' \
+    '7. 公开 metadata 确认' \
+    '8. token 安全输入方式' \
+    '9. 本地保留数量' \
+    '10. systemd 运行用户和组' \
+    '11. systemd 计划' \
+    '12. 迁移与遗留状态' \
     '检查服务器和当前仓库' \
-    '向用户展示候选路径、排除项和风险' \
-    '等待用户明确确认路径清单' \
+    '向用户展示候选路径、排除项、公开 manifest 元数据和风险' \
+    '等待用户明确确认路径清单及公开性' \
     '写入 `hosts/<host>/backup.conf`' \
     '创建初始模板与配置提交' \
     'BACKUP_HOST=<host> scripts/configure-secrets.sh' \
@@ -166,6 +173,14 @@ scenario_llm_interview_sequence() {
     '用户明确确认可以发布' \
     'BACKUP_HOST=<host> scripts/publish-prepared.sh' \
     '可选 systemd'
+}
+
+scenario_llm_public_backup_narrative() {
+  todo10_require_text '公开 Git 备份仓库' || return 2
+  todo10_require_text '失去私有仓库访问权后，仍能匿名取得加密归档' || return 2
+  todo10_require_text 'manifest 元数据也会公开' || return 2
+  todo10_require_text '公开 metadata 未确认' || return 2
+  todo10_reject_pattern '实际备份仓库必须保持私有|实际备份仓库应设为私有|实际备份仓库均为私有' || return 2
 }
 
 scenario_llm_final_summary() {
@@ -187,10 +202,10 @@ scenario_llm_final_summary() {
     '待重试 mirrors：<none-or-names>' \
     'secret 状态：<configured-or-not-needed>' \
     'age 公钥状态：已配置用户提供的公钥，不显示值' \
-    '私钥状态：Agent 未接触'; do
+    '解密材料状态：Agent 未接触'; do
     todo10_require_text "$text" || return 2
   done
-  todo10_require_section_order '## 最终汇总模板' \
+  todo10_require_section_order '## 13. 最终汇总模板' \
     '已确认备份路径：' \
     '已确认排除规则：' \
     'canonical：' \
@@ -216,10 +231,10 @@ scenario_llm_missing_public_key() {
 
 scenario_llm_private_raw_url() {
   todo10_require_section_order '### 固定 URL 匿名读取失败' \
-    '停止发布' \
-    '报告外部发布阻塞' \
+    '停止部署' \
+    '文档获取问题' \
     '不得改用替代 URL' \
-    '不得声称发布门禁通过'
+    '不得声称已读取当前 Agent 指南'
 }
 
 scenario_llm_root_paths() {
