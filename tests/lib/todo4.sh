@@ -293,6 +293,46 @@ PY
   if grep -Eq 'ARGS=.* push canonical ' "$TODO4_FIXTURE/git4.log"; then return 2; fi
 }
 
+scenario_private_http_canonical_preprepare() {
+  todo4_setup private-http-canonical main 1 1 || return 2
+  /usr/bin/git -C "$TODO4_REPO" remote set-url canonical https://gitlab.com/example/private-backup.git || return 2
+  cat >"$TODO4_FIXTURE/bin/git" <<'EOF'
+#!/usr/bin/env bash
+set -u
+printf 'ASKPASS=%q TOKEN=%q USER=%q ARGS=' "${GIT_ASKPASS-}" "${GIT_ASKPASS_TOKEN-}" "${GIT_ASKPASS_USERNAME-}" >>"${TODO4_GIT_LOG:?}"
+printf '%q ' "$@" >>"${TODO4_GIT_LOG}"; printf '\n' >>"${TODO4_GIT_LOG}"
+operation=""
+for argument in "$@"; do
+  case "$argument" in
+    ls-remote|fetch|push) operation="$argument"; break ;;
+  esac
+done
+if [[ -n "$operation" ]]; then
+  rewritten=()
+  for argument in "$@"; do
+    if [[ "$argument" == canonical ]]; then
+      rewritten+=("${TODO4_CANONICAL:?}")
+    else
+      rewritten+=("$argument")
+    fi
+  done
+  exec /usr/bin/git "${rewritten[@]}"
+fi
+exec /usr/bin/git "$@"
+EOF
+  chmod +x "$TODO4_FIXTURE/bin/git"
+  todo4_run_script "$TODO4_FIXTURE/private-http-prepare.log" \
+    TODO4_GIT_LOG="$TODO4_FIXTURE/git4.log" \
+    TODO4_CANONICAL="$TODO4_CANONICAL" \
+    GITLAB_TOKEN=private-http-token \
+    BACKUP_PUSH=0 \
+    bash "$TODO4_REPO/scripts/backup.sh" || return 2
+  [[ -f "$TODO4_STATE" ]] || return 2
+  local remote_line
+  remote_line="$(grep -E 'ARGS=.* (ls-remote|fetch) ' "$TODO4_FIXTURE/git4.log" | head -n 1)"
+  [[ "$remote_line" == *"ASKPASS=$TODO4_REPO/scripts/git-askpass.sh"* && "$remote_line" == *'TOKEN=private-http-token'* && "$remote_line" == *'USER=oauth2'* ]] || return 2
+}
+
 scenario_canonical_preprepare_sync() {
   local publisher
   todo4_setup canonical-preprepare-sync main 1 1 || return 2

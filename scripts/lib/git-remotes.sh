@@ -190,14 +190,14 @@ synchronize_canonical_before_prepare() {
   require_local_publication_branch
   require_clean_repository
   CANONICAL_BRANCH_EXISTS=""
-  query_remote_branch "$CANONICAL_REMOTE" "$PUSH_BRANCH" 1
+  query_remote_branch "$CANONICAL_REMOTE" "$PUSH_BRANCH"
   if [[ "$REMOTE_BRANCH_EXISTS" == "0" ]]; then
     CANONICAL_BASE_OID=""
     CANONICAL_BRANCH_EXISTS=0
     return 0
   fi
   CANONICAL_BRANCH_EXISTS=1
-  fetch_remote_branch "$CANONICAL_REMOTE" "$PUSH_BRANCH" 1
+  fetch_remote_branch "$CANONICAL_REMOTE" "$PUSH_BRANCH"
   canonical_oid="$FETCHED_REMOTE_OID"
   if [[ "$LOCAL_HEAD_OID" == "$canonical_oid" ]]; then
     CANONICAL_BASE_OID="$canonical_oid"

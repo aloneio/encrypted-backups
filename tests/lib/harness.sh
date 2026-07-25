@@ -1577,6 +1577,7 @@ run_selector_function() {
     commit-state-recovery) scenario_commit_state_recovery ;;
     remote-status-recovery) scenario_remote_status_recovery ;;
     canonical-preprepare-sync) scenario_canonical_preprepare_sync ;;
+    private-http-canonical-preprepare) scenario_private_http_canonical_preprepare ;;
     remote-validation-todo4) scenario_remote_validation_todo4 ;;
     verifier-baseline-todo4) scenario_verifier_baseline_todo4 ;;
     canonical-only-precommit-todo4) scenario_canonical_only_precommit_todo4 ;;
