@@ -23,10 +23,16 @@ launcher_path="${BASH_SOURCE[0]}"
 [[ "$host" =~ ^([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9._-]*[A-Za-z0-9])$ ]] || fail 'invalid host ID'
 [[ "$verify_only" == 1 || "$EUID" -eq 0 ]] || fail 'must be executed as root'
 
+python_args=(-I)
+if /usr/bin/env -i PATH=/usr/bin:/bin LANG=C LC_ALL=C \
+  /usr/bin/python3 -I -P -c 'pass' >/dev/null 2>&1; then
+  python_args+=(-P)
+fi
+
 exec /usr/bin/env -i \
   PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
   LANG=C LC_ALL=C \
-  /usr/bin/python3 -I -P - "$verify_only" "$verify_token" "$repo" "$host" "$token_env" "$launcher_path" <<'PY'
+  /usr/bin/python3 "${python_args[@]}" - "$verify_only" "$verify_token" "$repo" "$host" "$token_env" "$launcher_path" <<'PY'
 import os
 import pathlib
 import re

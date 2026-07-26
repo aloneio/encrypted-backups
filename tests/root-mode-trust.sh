@@ -22,6 +22,22 @@ trap cleanup EXIT
 bash -n "$PROJECT_ROOT/scripts/root-launcher.sh"
 bash -n "$PROJECT_ROOT/scripts/install-systemd-timer.sh"
 
+mkdir -p "$fixture/python-bin"
+cat >"$fixture/python-bin/python3" <<'EOF'
+#!/usr/bin/env bash
+for argument in "$@"; do
+  if [[ "$argument" == -P ]]; then
+    printf '%s\n' 'Unknown option: -P' >&2
+    exit 2
+  fi
+done
+exec /usr/bin/python3 "$@"
+EOF
+chmod 0755 "$fixture/python-bin/python3"
+sed "s#/usr/bin/python3#$fixture/python-bin/python3#g" \
+  "$PROJECT_ROOT/scripts/root-launcher.sh" >"$fixture/root-launcher-python310.sh"
+chmod 0755 "$fixture/root-launcher-python310.sh"
+
 mkdir -p "$fixture/repo"
 cp -a "$PROJECT_ROOT/scripts" "$PROJECT_ROOT/hosts" "$fixture/repo/"
 mkdir -p "$fixture/repo/hosts/testbox"
@@ -44,6 +60,24 @@ as_root chmod 0755 "$root_fixture/repo/scripts/backup.sh"
 
 as_root bash "$root_fixture/repo/scripts/root-launcher.sh" --verify \
   "$root_fixture/repo" testbox "$root_fixture/env/testbox.env"
+as_root cp "$fixture/root-launcher-python310.sh" "$root_fixture/repo/scripts/root-launcher-python310.sh"
+as_root chown root:root "$root_fixture/repo/scripts/root-launcher-python310.sh"
+as_root chmod 0755 "$root_fixture/repo/scripts/root-launcher-python310.sh"
+as_root bash "$root_fixture/repo/scripts/root-launcher-python310.sh" --verify \
+  "$root_fixture/repo" testbox "$root_fixture/env/testbox.env"
+as_root rm -f "$root_fixture/executed"
+as_root bash "$root_fixture/repo/scripts/root-launcher-python310.sh" \
+  "$root_fixture/repo" testbox "$root_fixture/env/testbox.env"
+[[ -f "$root_fixture/executed" ]]
+as_root rm -f "$root_fixture/executed"
+mkdir -p "$fixture/hostile-pythonpath"
+cat >"$fixture/hostile-pythonpath/sitecustomize.py" <<EOF
+open("$fixture/probe-sitecustomize-executed", "w").close()
+EOF
+as_root env PYTHONPATH="$fixture/hostile-pythonpath" \
+  bash "$root_fixture/repo/scripts/root-launcher.sh" --verify \
+  "$root_fixture/repo" testbox "$root_fixture/env/testbox.env"
+[[ ! -e "$fixture/probe-sitecustomize-executed" ]]
 as_root bash "$root_fixture/repo/scripts/root-launcher.sh" \
   "$root_fixture/repo" testbox "$root_fixture/env/testbox.env"
 [[ -f "$root_fixture/executed" ]]
