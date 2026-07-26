@@ -243,7 +243,7 @@ preflight_canonical_before_commit() {
 }
 
 preflight_remote_after_commit() {
-  local remote="$1" base_oid="$2" committed_oid="$3" oid
+  local remote="$1" base_oid="$2" committed_oid="$3" oid compaction_reference_oid
   CURRENT_REMOTE_NEEDS_COMPACTION_FORCE=0
   query_remote_branch "$remote" "$PUSH_BRANCH"
   oid="$REMOTE_BRANCH_OID"
@@ -258,7 +258,12 @@ preflight_remote_after_commit() {
   [[ "$remote" != "$CANONICAL_REMOTE" ]] || fail "remote divergence: remote=$remote remote_oid=$oid"
   fetch_remote_branch "$remote" "$PUSH_BRANCH"
   [[ "$FETCHED_REMOTE_OID" == "$oid" ]] || fail "remote '$remote' moved during preflight"
-  validate_compaction_snapshot_commit "$base_oid" "$oid" || \
+  compaction_reference_oid="$committed_oid"
+  if publication_git cat-file -e "$committed_oid^" 2>/dev/null; then
+    compaction_reference_oid="$(publication_git rev-parse "$committed_oid^")"
+  fi
+  validate_compaction_snapshot_commit "$oid" "$base_oid" 1 || \
+    validate_compaction_snapshot_commit "$oid" "$compaction_reference_oid" 1 || \
     fail "remote divergence: remote=$remote remote_oid=$oid"
   CURRENT_REMOTE_OID="$oid"
   CURRENT_REMOTE_NEEDS_COMPACTION_FORCE=1

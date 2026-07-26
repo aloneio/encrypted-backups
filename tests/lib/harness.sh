@@ -1636,6 +1636,8 @@ run_selector_function() {
     canonical-moved) scenario_canonical_moved ;;
     canonical-deleted) scenario_canonical_deleted_after_prepare ;;
     immutable-mirror-divergence) scenario_immutable_mirror_divergence ;;
+    mirror-compaction-postcommit-retry) scenario_mirror_compaction_postcommit_retry ;;
+    mirror-compaction-extra-data-rejected) scenario_mirror_compaction_snapshot_extra_data_rejected ;;
     missing-remote) scenario_missing_remote_todo4 ;;
     branch-guards) scenario_branch_guards ;;
     post-commit-immutability) scenario_post_commit_immutability ;;

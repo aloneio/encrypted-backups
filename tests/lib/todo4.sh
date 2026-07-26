@@ -201,6 +201,91 @@ scenario_canonical_deleted_after_prepare() {
   grep -Fq 'canonical moved after preparation' "$TODO4_FIXTURE/publish.log" || return 2
 }
 
+scenario_mirror_compaction_postcommit_retry() {
+  todo4_setup mirror-compaction-postcommit main 1 2 || return 2
+  todo4_prepare || return 2
+  todo4_publish || return 2
+  todo4_prepare || return 2
+  local message committed base compacted
+  message="$(/usr/bin/python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["publication"]["commit_message"])' "$TODO4_STATE")"
+  /usr/bin/git -C "$TODO4_REPO" commit -qm "$message" || return 2
+  committed="$(/usr/bin/git -C "$TODO4_REPO" rev-parse HEAD)"
+  base="$(/usr/bin/git -C "$TODO4_REPO" rev-parse "$committed^")"
+  /usr/bin/git -C "$TODO4_REPO" push -q canonical "$committed:refs/heads/main" || return 2
+  /usr/bin/python3 - "$TODO4_STATE" "$committed" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+state = json.loads(path.read_text(encoding="utf-8"))
+state["committed_oid"] = sys.argv[2]
+state["publication"]["remotes"][0] = {
+    "name": "canonical",
+    "status": "published",
+    "published_oid": sys.argv[2],
+    "error": "",
+}
+path.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+PY
+  /usr/bin/git -C "$TODO4_REPO" reset -q --mixed HEAD
+  /usr/bin/git -C "$TODO4_REPO" checkout -q -- .
+  GIT_AUTHOR_NAME=backup-compactor GIT_AUTHOR_EMAIL=backup-compactor@example.invalid \
+  GIT_COMMITTER_NAME=backup-compactor GIT_COMMITTER_EMAIL=backup-compactor@example.invalid \
+    compacted="$(printf 'Compact encrypted backup history (keep 2 complete sets per host)\n' | /usr/bin/git -C "$TODO4_REPO" commit-tree "$base^{tree}")" || return 2
+  /usr/bin/git -C "$TODO4_REPO" push -q --force "$TODO4_MIRROR" "$compacted:refs/heads/main" || return 2
+  todo4_publish || return 2
+  [[ "$(todo4_remote_oid "$TODO4_CANONICAL" main)" == "$committed" ]] || return 2
+  [[ "$(todo4_remote_oid "$TODO4_MIRROR" main)" == "$committed" ]] || return 2
+  [[ ! -e "$TODO4_STATE" ]] || return 2
+}
+
+scenario_mirror_compaction_snapshot_extra_data_rejected() {
+  todo4_setup mirror-compaction-extra-data main 1 2 || return 2
+  todo4_prepare || return 2
+  local message committed base snapshot tree
+  message="$(/usr/bin/python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["publication"]["commit_message"])' "$TODO4_STATE")"
+  /usr/bin/git -C "$TODO4_REPO" commit -qm "$message" || return 2
+  committed="$(/usr/bin/git -C "$TODO4_REPO" rev-parse HEAD)"
+  base="$(/usr/bin/git -C "$TODO4_REPO" rev-parse "$committed^")"
+  /usr/bin/git -C "$TODO4_REPO" push -q canonical "$committed:refs/heads/main" || return 2
+  /usr/bin/python3 - "$TODO4_STATE" "$committed" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+state = json.loads(path.read_text(encoding="utf-8"))
+state["committed_oid"] = sys.argv[2]
+state["publication"]["remotes"][0] = {"name": "canonical", "status": "published", "published_oid": sys.argv[2], "error": ""}
+path.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+PY
+  /usr/bin/git -C "$TODO4_REPO" reset -q --mixed HEAD
+  /usr/bin/git -C "$TODO4_REPO" checkout -q -- .
+  local artifact=2026-01-01T00-00-00Z archive digest
+  archive="backups/evil/$artifact.tar.zst.age"
+  mkdir -p "$TODO4_REPO/backups/evil" "$TODO4_REPO/manifests/evil"
+  printf 'encrypted evil\n' >"$TODO4_REPO/$archive"
+  digest="$(/usr/bin/sha256sum "$TODO4_REPO/$archive" | cut -d ' ' -f 1)"
+  printf '%s  %s\n' "$digest" "$archive" >"$TODO4_REPO/backups/evil/$artifact.sha256"
+  printf '{"host_id":"evil","timestamp_utc":"%s","encrypted_archive":"%s","encrypted_archive_sha256":"%s"}\n' "$artifact" "$archive" "$digest" >"$TODO4_REPO/manifests/evil/$artifact.json"
+  printf '%s\n' "$archive" >"$TODO4_REPO/backups/evil/latest.txt"
+  /usr/bin/git -C "$TODO4_REPO" add -- backups/evil manifests/evil
+  tree="$(/usr/bin/git -C "$TODO4_REPO" write-tree)"
+  GIT_AUTHOR_NAME=backup-compactor GIT_AUTHOR_EMAIL=backup-compactor@example.invalid \
+  GIT_COMMITTER_NAME=backup-compactor GIT_COMMITTER_EMAIL=backup-compactor@example.invalid \
+    snapshot="$(printf 'Compact encrypted backup history (keep 2 complete sets per host)\n' | /usr/bin/git -C "$TODO4_REPO" commit-tree "$tree")" || return 2
+  /usr/bin/git -C "$TODO4_REPO" reset -q --mixed HEAD
+  /usr/bin/git -C "$TODO4_REPO" checkout -q -- .
+  rm -rf "$TODO4_REPO/backups/evil" "$TODO4_REPO/manifests/evil"
+  /usr/bin/git -C "$TODO4_REPO" push -q --force "$TODO4_MIRROR" "$snapshot:refs/heads/main" || return 2
+  if todo4_publish; then return 2; fi
+  [[ "$(todo4_remote_oid "$TODO4_CANONICAL" main)" == "$committed" ]] || return 2
+  [[ "$(todo4_remote_oid "$TODO4_MIRROR" main)" == "$snapshot" ]] || return 2
+  [[ -e "$TODO4_STATE" ]] || return 2
+  grep -Fq 'remote divergence' "$TODO4_FIXTURE/publish.log" || return 2
+}
+
 scenario_immutable_mirror_divergence() {
   todo4_setup mirror-divergence main 1 2 || return 2
   todo4_prepare || return 2

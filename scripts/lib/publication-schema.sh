@@ -266,10 +266,11 @@ PY
 }
 
 validate_compaction_snapshot_commit() {
-  local snapshot_oid="$1" local_oid="$2"
+  local snapshot_oid="$1" local_oid="$2" strict_reference="${3:-0}"
+  [[ "$strict_reference" == 0 || "$strict_reference" == 1 ]] || return 1
   publication_git cat-file -e "$snapshot_oid^{commit}" 2>/dev/null || return 1
   publication_git cat-file -e "$local_oid^{commit}" 2>/dev/null || return 1
-  publication_python - "$REPO_DIR" "$snapshot_oid" "$local_oid" <<'PY'
+  publication_python - "$REPO_DIR" "$snapshot_oid" "$local_oid" "$strict_reference" <<'PY'
 from __future__ import annotations
 
 import hashlib
@@ -278,7 +279,10 @@ import re
 import subprocess
 import sys
 
-root, snapshot_oid, local_oid = sys.argv[1:]
+root, snapshot_oid, local_oid, strict_reference = sys.argv[1:]
+if strict_reference not in {"0", "1"}:
+    raise ValueError
+strict_reference = strict_reference == "1"
 oid_pattern = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
 host_pattern = r"[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?"
 artifact_pattern = r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}Z(?:-[0-9]{9})?"
@@ -348,6 +352,8 @@ for path in set(snapshot) | set(local):
         raise ValueError
 for path in snapshot:
     if generated(path) and not valid_data_path(path):
+        raise ValueError
+    if strict_reference and generated(path) and snapshot[path] != local.get(path):
         raise ValueError
 for path, entry in local.items():
     if generated(path) and path in snapshot and snapshot[path] != entry:
