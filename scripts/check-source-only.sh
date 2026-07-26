@@ -125,10 +125,17 @@ if [[ -f "$REPO_DIR/.github/workflows/remote-retention.yml" ]]; then
     mark_bad 'GitHub remote compaction workflow must invoke the compaction script'
   grep -Fq 'contents: write' "$REPO_DIR/.github/workflows/remote-retention.yml" || \
     mark_bad 'GitHub remote compaction workflow must declare contents write permission'
+  if grep -Fq 'BACKUP_ENABLE_GITHUB_COMPACTION' "$REPO_DIR/.github/workflows/remote-retention.yml"; then
+    mark_bad 'GitHub scheduled compaction must not depend on an extra repository variable gate'
+  fi
+  grep -Fq 'cron:' "$REPO_DIR/.github/workflows/remote-retention.yml" || \
+    mark_bad 'GitHub remote compaction workflow must have a cron schedule'
 fi
 if [[ -f "$REPO_DIR/.gitlab-ci.yml" ]]; then
   grep -Fq 'scripts/compact-remote-history.sh' "$REPO_DIR/.gitlab-ci.yml" || \
     mark_bad 'GitLab remote compaction pipeline must invoke the compaction script'
+  grep -Fq 'CI_PIPELINE_SOURCE == "schedule"' "$REPO_DIR/.gitlab-ci.yml" || \
+    mark_bad 'GitLab remote compaction pipeline must accept scheduled pipelines'
 fi
 
 if [[ -f "$REPO_DIR/scripts/backup.sh" ]]; then

@@ -101,6 +101,33 @@ scenario_remote_compaction_all_branches() {
   grep -Fq 'COMPACTION_PUBLISHED branch=backup/host-b' "$COMPACTION_FIXTURE/all.log" || return 2
 }
 
+scenario_remote_compaction_each_mirror() {
+  local artifact remote_a remote_b head_a head_b remote
+  compaction_setup each-mirror || return 2
+  remote_a="$COMPACTION_REMOTE"
+  remote_b="$COMPACTION_FIXTURE/mirror.git"
+  /usr/bin/git init -q --bare "$remote_b" || return 2
+  /usr/bin/git -C "$COMPACTION_REPO" remote add mirror "$remote_b" || return 2
+  for artifact in 2026-01-01T00-00-00Z 2026-01-02T00-00-00Z 2026-01-03T00-00-00Z; do
+    compaction_make_set "$COMPACTION_REPO" host-a "$artifact"
+    compaction_commit "$COMPACTION_REPO" "fixture $artifact" || return 2
+  done
+  /usr/bin/git -C "$COMPACTION_REPO" push -q origin HEAD:refs/heads/main || return 2
+  /usr/bin/git -C "$COMPACTION_REPO" push -q mirror HEAD:refs/heads/main || return 2
+  for remote in origin mirror; do
+    run_captured "$COMPACTION_FIXTURE/$remote.log" 30 env BACKUP_COMPACTION_CI=1 BACKUP_COMPACTION_REMOTE="$remote" BACKUP_COMPACTION_ALL_BRANCHES=1 BACKUP_COMPACTION_KEEP=2 \
+      bash "$COMPACTION_REPO/scripts/compact-remote-history.sh" || return 2
+  done
+  head_a="$(/usr/bin/git --git-dir="$remote_a" rev-parse refs/heads/main)" || return 2
+  head_b="$(/usr/bin/git --git-dir="$remote_b" rev-parse refs/heads/main)" || return 2
+  [[ -z "$(/usr/bin/git --git-dir="$remote_a" rev-list --parents -n 1 "$head_a" | awk 'NF > 1 {print}')" ]] || return 2
+  [[ -z "$(/usr/bin/git --git-dir="$remote_b" rev-list --parents -n 1 "$head_b" | awk 'NF > 1 {print}')" ]] || return 2
+  [[ "$(/usr/bin/git --git-dir="$remote_a" ls-tree -r --name-only "$head_a" -- backups/host-a | grep -Ec '\.tar\.zst\.age$')" == 2 ]] || return 2
+  [[ "$(/usr/bin/git --git-dir="$remote_b" ls-tree -r --name-only "$head_b" -- backups/host-a | grep -Ec '\.tar\.zst\.age$')" == 2 ]] || return 2
+  grep -Fq 'COMPACTION_PUBLISHED branch=main' "$COMPACTION_FIXTURE/origin.log" || return 2
+  grep -Fq 'COMPACTION_PUBLISHED branch=main' "$COMPACTION_FIXTURE/mirror.log" || return 2
+}
+
 scenario_remote_compaction_requires_ci_marker() {
   local artifact before after
   compaction_setup ci-marker || return 2

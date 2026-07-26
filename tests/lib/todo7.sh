@@ -42,7 +42,11 @@ scenario_ci_absence() {
   [[ -f "$PROJECT_ROOT/.github/workflows/remote-retention.yml" && ! -L "$PROJECT_ROOT/.github/workflows/remote-retention.yml" ]] || return 2
   [[ -f "$PROJECT_ROOT/.gitlab-ci.yml" && ! -L "$PROJECT_ROOT/.gitlab-ci.yml" ]] || return 2
   grep -Fq 'scripts/compact-remote-history.sh' "$PROJECT_ROOT/.github/workflows/remote-retention.yml" || return 2
+  grep -Fq 'contents: write' "$PROJECT_ROOT/.github/workflows/remote-retention.yml" || return 2
+  grep -Fq 'cron:' "$PROJECT_ROOT/.github/workflows/remote-retention.yml" || return 2
+  ! grep -Fq 'BACKUP_ENABLE_GITHUB_COMPACTION' "$PROJECT_ROOT/.github/workflows/remote-retention.yml" || return 2
   grep -Fq 'scripts/compact-remote-history.sh' "$PROJECT_ROOT/.gitlab-ci.yml" || return 2
+  grep -Fq 'CI_PIPELINE_SOURCE == "schedule"' "$PROJECT_ROOT/.gitlab-ci.yml" || return 2
 }
 
 scenario_docs_key_policy() {

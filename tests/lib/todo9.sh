@@ -42,6 +42,7 @@ scenario_readme_contract() {
   todo9_require_text '<positive-integer>' "$PROJECT_ROOT/hosts/example/backup.conf" || return 2
   todo9_require_text '每个 host 应使用独立分支，例如 backup/<host-id>' "$PROJECT_ROOT/hosts/example/backup.conf" || return 2
   todo9_require_text '远端 GitHub Actions/GitLab CI 压缩独立固定每个 host 最近两个完整集合' "$PROJECT_ROOT/hosts/example/backup.conf" || return 2
+  todo9_require_text '每个实际 GitHub/GitLab remote 都必须各自启用并验证平台原生定时压缩' "$PROJECT_ROOT/hosts/example/backup.conf" || return 2
   if grep -Eq 'github-main|gitlab-main|/srv/example|BACKUP_TOKEN_|GITHUB_TOKEN|GITLAB_TOKEN' "$PROJECT_ROOT/hosts/example/backup.conf"; then
     say_error 'Todo 9 example config contains an old literal or token field'
     return 2
@@ -62,6 +63,9 @@ scenario_readme_contract() {
   todo9_reject_pattern '\.github/workflows/retention\.yml' || return 2
   todo9_require_text 'remote-retention.yml' || return 2
   todo9_require_text 'compact-remote-history.sh' || return 2
+  todo9_require_text '.github/workflows/remote-retention.yml' || return 2
+  todo9_require_text '.gitlab-ci.yml' || return 2
+  todo9_require_text 'git add -- README.md .gitignore .gitlab-ci.yml .github/workflows/remote-retention.yml' || return 2
 }
 
 scenario_readme_novice_flow() {
@@ -117,6 +121,14 @@ scenario_readme_remote_retention_and_multi_host() {
     'CI 定时压缩' \
     '最近两个完整集合' \
     '以 `force-with-lease` 替换该分支' \
+    '每个实际远端仓库都必须有自己的平台原生定时压缩' \
+    '不能只清理 canonical' \
+    '默认分支' \
+    'gh run list --workflow remote-retention.yml' \
+    'Pipeline Schedule' \
+    '先用 `glab api projects/<url-encoded-project>/pipeline_schedules` 查询' \
+    '`.gitlab-ci.yml` 本身**不会创建定时任务**' \
+    '每个实际远端仓库的平台/定时压缩状态/最近运行结果' \
     '一个公开仓库可以备份多个服务器' \
     '每个服务器必须使用唯一的 `BACKUP_HOST`/`CONFIG_HOST_ID`' \
     '不同服务器的本地 `flock` 不能跨服务器协调' \

@@ -1695,6 +1695,7 @@ run_selector_function() {
     token-entry-eof) scenario_token_entry_eof ;;
     remote-compaction-retains-two) scenario_remote_compaction_rewrites_to_two_sets ;;
     remote-compaction-all-branches) scenario_remote_compaction_all_branches ;;
+    remote-compaction-each-mirror) scenario_remote_compaction_each_mirror ;;
     remote-compaction-requires-ci) scenario_remote_compaction_requires_ci_marker ;;
     remote-compaction-noop) scenario_remote_compaction_noop_at_two_sets ;;
     remote-compaction-malformed) scenario_remote_compaction_rejects_malformed_set ;;

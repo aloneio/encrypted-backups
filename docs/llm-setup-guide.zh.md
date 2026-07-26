@@ -36,6 +36,7 @@ cat scripts/configure-secrets.sh
 cat scripts/install-systemd-timer.sh
 cat scripts/migrate-legacy.sh
 cat scripts/check-source-only.sh
+cat scripts/compact-remote-history.sh
 cat scripts/root-launcher.sh
 cat scripts/git-askpass.sh
 cat scripts/lib/common.sh
@@ -44,6 +45,8 @@ cat scripts/lib/install-common.sh
 cat scripts/lib/publication-schema.sh
 cat scripts/lib/prepare.sh
 cat scripts/lib/retention.sh
+cat .github/workflows/remote-retention.yml
+cat .gitlab-ci.yml
 ```
 
 README 也是面向 Agent 的简明执行说明；本文是更完整的顺序、决策树和汇总约定。若 README、本文和脚本存在差异，以当前脚本行为为准，并停止向用户澄清。
@@ -93,9 +96,11 @@ README 也是面向 Agent 的简明执行说明；本文是更完整的顺序、
    - 默认语义是本机每个 host 在当前分支树保留最近 3 个完整集合。
    - 告知用户：远端 CI 压缩会独立固定保留每 host 最近两个完整集合并 force-with-lease 重写备份分支；这是缩减 refs 与可达历史的必要破坏性操作。
 
-10. 远端压缩平台与权限
-    - 询问用户选择 GitHub Actions 或 GitLab CI，**同一仓库只启用一个平台**的压缩任务。
-    - GitHub 需要 workflow `contents: write`；GitLab 需要允许 CI job token 写入该项目和 force-with-lease 更新备份分支。
+10. 每个实际远端仓库的压缩调度与权限
+    - 对 canonical 与每个 mirror 分别识别 GitHub、GitLab 或其他托管平台；不是为整组远端只选择一个平台。
+    - 每个 GitHub 备份仓库都必须确认默认分支包含 `remote-retention.yml`、Actions cron 已启用、`contents: write` 可用，并查询最近一次 workflow run。
+    - 每个 GitLab 备份仓库都必须创建 active Pipeline Schedule；`.gitlab-ci.yml` 本身不会创建定时任务。还要确认 CI job token 可写以及备份分支允许 force-with-lease 更新。
+    - canonical 与 mirrors 跨 GitHub/GitLab 时，两端各自启用平台原生定时压缩；只有两个调度器写同一个物理 remote 才是错误竞争配置。
     - 说明平台垃圾回收是异步的；压缩后不承诺旧密文立刻从缓存、fork、clone 或外部副本消失。
 
 11. 多服务器计划
@@ -179,6 +184,7 @@ BACKUP_HOST=<host> scripts/migrate-legacy.sh --adopt-staged
 - 精确备份路径和精确排除规则；
 - 将公开的 manifest 元数据和用户明确确认结果；
 - 本地保留数量；
+- 每个实际远端仓库的平台、压缩定时任务、写权限与最近一次运行状态；
 - systemd 用户、组和计划；
 - 是否确实需要 root；
 - 迁移报告状态。
@@ -221,7 +227,7 @@ TAR_EXCLUDES=(
 
 ```bash
 git status --short
-git add -- README.md .gitignore docs/llm-setup-guide.zh.md hosts/<host>/backup.conf scripts/*.sh scripts/lib/*.sh tests/*.sh tests/lib/*.sh
+git add -- README.md .gitignore .gitlab-ci.yml .github/workflows/remote-retention.yml docs/llm-setup-guide.zh.md hosts/<host>/backup.conf scripts/*.sh scripts/lib/*.sh tests/*.sh tests/lib/*.sh
 git diff --cached --name-status
 git commit -m "Initialize backup template and host config"
 git status --short
@@ -263,7 +269,31 @@ BACKUP_HOST=<host> scripts/configure-secrets.sh
 
 这些 GitHub Actions/GitLab CI 定时压缩任务每日调度、可手动触发，并对每个备份分支建立无父提交的快照：验证 archive、checksum、manifest 与 `latest.txt` 后，固定保留**每个 host 最近两个完整集合**，以 `force-with-lease` 替换分支。压缩器遇到不完整集合、异常生成路径或 checksum/manifest/latest 不匹配时必须停止，不改写分支。
 
-启动部署前必须让用户选择一个平台：GitHub Actions 或 GitLab CI。仓库默认由 GitLab CI 运行；GitHub workflow 只有项目变量 `BACKUP_ENABLE_GITHUB_COMPACTION=true` 时才会执行。不得同时启用 GitHub 变量和 GitLab schedule。GitHub workflow 需要 `contents: write`；GitLab 项目需要允许 CI job token 写入与 force-with-lease 更新目标备份分支。平台随后会按自身策略异步回收失去引用的对象；不要保证旧密文立即从平台缓存、fork、clone 或已经下载的副本消失。
+启用与验证必须按**每一个实际 Git remote 对应的托管仓库**分别完成：
+
+- GitHub：默认分支包含 `.github/workflows/remote-retention.yml` 后，cron 自动运行，不使用额外开关变量。Agent 必须确认仓库 Actions 已启用、workflow 有 `contents: write`、目标备份分支允许 GitHub Actions 用 `force-with-lease` 更新，并运行 `gh workflow view remote-retention.yml --repo <owner>/<repo>` 与 `gh run list --workflow remote-retention.yml --repo <owner>/<repo> --limit 1` 核对 workflow 和最近一次运行。仅有 workflow 文件但 Actions 被禁用或无写权限不算完成。
+- GitLab：`.gitlab-ci.yml` **不会自动创建 Pipeline Schedule**。Agent 必须在每个实际 GitLab 备份项目创建 active schedule。先查询以避免重复创建：
+
+```bash
+glab api projects/<url-encoded-project>/pipeline_schedules
+```
+
+仅在不存在相同 ref/cron 的 active schedule 时创建：
+
+```bash
+glab api --method POST projects/<url-encoded-project>/pipeline_schedules \
+  -f description='Compact public backup history' \
+  -f ref='<default-branch>' \
+  -f cron='23 3 * * *' \
+  -f cron_timezone='UTC' \
+  -F active=true
+glab api projects/<url-encoded-project>/pipeline_schedules
+```
+
+  schedule 指向包含 `.gitlab-ci.yml` 的默认分支即可；job 使用 `BACKUP_COMPACTION_ALL_BRANCHES=1` 清理该项目的所有备份分支。还必须确认 CI job token 可写入项目，并允许 `force-with-lease` 更新目标备份分支。
+- 如果 canonical 在 GitHub、mirror 在 GitLab，GitHub Actions 和 GitLab Pipeline Schedule **都必须启用**，分别清理各自的物理仓库。每个 GitHub/GitLab mirror 也一样；不得只清理 canonical。只有多个调度器试图写同一个物理 remote 时才禁止，因为它们会竞争 lease。
+
+Agent 必须为每个 remote 记录：remote 名称、脱敏 URL、平台、定时任务是否 active、cron、写权限验证、最近一次运行状态。平台随后会按自身策略异步回收失去引用的对象；不要保证旧密文立即从平台缓存、fork、clone 或已经下载的副本消失。
 
 压缩后，干净的服务器工作副本会验证并接受受信任的 CI 快照，再准备新备份；但已有 prepared state 时必须停止并重新准备，不能发布基于旧历史的 state。压缩器本身只能在 CI 显式设置 `BACKUP_COMPACTION_CI=1` 后运行，服务器备份任务不得直接调用。
 
@@ -321,7 +351,7 @@ sha256sum -c backups/<host>/<artifact-id>.sha256
 - 用户控制的外部恢复处理结果；
 - 本地 retention 删除清单；
 - 当前分支树的每 host 本地保留数、CI 远端压缩的固定两个完整集合，以及 Git 托管端异步回收边界；
-- 选定的压缩平台、写权限和最近一次压缩状态；
+- 每个实际远端仓库的托管平台、定时压缩 active 状态、cron、写权限和最近一次压缩结果；
 - 多服务器计划（host 标识与错开/协调状态）。
 
 只有用户明确确认可以发布，才运行：
@@ -456,6 +486,9 @@ prepared base OID：<oid-or-empty-branch>
 远端 OID：
 - <remote-name>：<oid-or-not-published>
 待重试 mirrors：<none-or-names>
+
+远端压缩状态：
+- <remote-name>：<github-actions-or-gitlab-schedule-or-other> / <active-or-blocked> / <cron> / <last-run-status>
 
 迁移状态：<clean/attention-required/adopted/not-run>
 外部恢复处理：<confirmed/failed/not-run>

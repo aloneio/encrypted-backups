@@ -92,6 +92,9 @@ PY
     'cat scripts/configure-secrets.sh' \
     'cat scripts/install-systemd-timer.sh' \
     'cat scripts/migrate-legacy.sh' \
+    'cat scripts/compact-remote-history.sh' \
+    'cat .github/workflows/remote-retention.yml' \
+    'cat .gitlab-ci.yml' \
     'cat scripts/lib/common.sh' \
     'cat scripts/lib/git-remotes.sh' \
     'cat scripts/lib/prepare.sh' \
@@ -123,7 +126,7 @@ PY
   todo10_reject_pattern 'age-keygen|age[[:space:]]+-d|age[[:space:]].*-i[[:space:]]|identity\.txt' || return 2
   todo10_require_text 'remote-retention.yml' || return 2
   todo10_require_text 'compact-remote-history.sh' || return 2
-  todo10_require_text 'compact-remote-history.sh' || return 2
+  todo10_require_text 'git add -- README.md .gitignore .gitlab-ci.yml .github/workflows/remote-retention.yml' || return 2
   todo10_reject_pattern 'git[[:space:]]+(reset|clean)|git[[:space:]]+push[^\n]*--force|git[[:space:]]+rebase' || return 2
   todo10_reject_pattern '暂存区[^。\n]*retention 删除项' || return 2
   todo10_require_text '只接受用户提供的 `age1...` 公钥' || return 2
@@ -161,7 +164,7 @@ scenario_llm_interview_sequence() {
     '7. 公开 metadata 确认' \
     '8. token 安全输入方式' \
     '9. 本地保留数量与远端容量边界' \
-    '10. 远端压缩平台与权限' \
+    '10. 每个实际远端仓库的压缩调度与权限' \
     '11. 多服务器计划' \
     '12. systemd 运行用户和组' \
     '13. systemd 计划' \
@@ -186,6 +189,16 @@ scenario_llm_remote_retention_and_multi_host() {
     'GitHub Actions/GitLab CI 定时压缩' \
     '每个 host 最近两个完整集合' \
     'force-with-lease 重写备份分支' \
+    '每一个实际 Git remote 对应的托管仓库' \
+    'cron 自动运行，不使用额外开关变量' \
+    'gh run list --workflow remote-retention.yml' \
+    '`.gitlab-ci.yml` **不会自动创建 Pipeline Schedule**' \
+    '先查询以避免重复创建' \
+    '每个实际 GitLab 备份项目创建 active schedule' \
+    'canonical 在 GitHub、mirror 在 GitLab' \
+    'GitHub Actions 和 GitLab Pipeline Schedule **都必须启用**' \
+    '不得只清理 canonical' \
+    '只有多个调度器试图写同一个物理 remote 时才禁止' \
     '一个公开仓库可以备份多个服务器' \
     '每个服务器必须使用唯一的 `BACKUP_HOST`/`CONFIG_HOST_ID`' \
     '无人值守的多服务器共享仓库必须为每个 host 使用独立 `BACKUP_BRANCH`' \
@@ -222,6 +235,8 @@ scenario_llm_final_summary() {
     '备份 commit OID：<oid-or-not-created>' \
     '远端 OID：' \
     '待重试 mirrors：<none-or-names>' \
+    '远端压缩状态：' \
+    '<remote-name>：<github-actions-or-gitlab-schedule-or-other> / <active-or-blocked> / <cron> / <last-run-status>' \
     'secret 状态：<configured-or-not-needed>' \
     'age 公钥状态：已配置用户提供的公钥，不显示值' \
     '解密材料状态：Agent 未接触'; do
@@ -239,7 +254,8 @@ scenario_llm_final_summary() {
     'prepared base OID：' \
     '备份 commit OID：' \
     '远端 OID：' \
-    '待重试 mirrors：'
+    '待重试 mirrors：' \
+    '远端压缩状态：'
 }
 
 scenario_llm_missing_public_key() {
