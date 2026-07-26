@@ -144,21 +144,29 @@ BACKUP_HOST=<host> scripts/publish-prepared.sh
 
 ## 给 Agent：远端容量、历史与多服务器
 
-当前保留策略只限制**当前分支树中每个 host 可见的完整集合数**。例如 `BACKUP_RETENTION_COUNT=3` 时，下一次成功发布会在新 commit 中删除该 host 更旧的归档、checksum 和 manifest；浏览 `main` 时不会像垃圾堆一样堆满旧文件。
+本地 `BACKUP_RETENTION_COUNT` 只限制**当前分支树中每个 host 可见的完整集合数**；它仍按用户配置决定本地发布时保留的数量。GitHub Actions/GitLab CI 定时压缩会另外固定每个 host 最近两个完整集合。
 
-但这是追加式 Git 历史：被后续 commit 删除的加密归档仍可从旧 commit 取得，公开 Git 托管端的可达历史对象也不会因为工作树删除而立即回收。因此，它**不会限制 GitLab/GitHub 的总对象存储量**，也不能撤回已经公开过的密文。把 `BACKUP_RETENTION_COUNT` 视为“当前可见恢复点数”，不是“远端历史与配额上限”。Agent 必须在首次配置时向用户说明这一点，并监控远端配额。
+为避免公开 Git remote 的提交引用和可达历史无限增长，仓库内置两套同一逻辑的远端压缩任务：
 
-不要为了腾出远端空间自动执行 history rewrite、rebase、amend、force push、删除分支或仓库，也不要添加 GitHub Actions/GitLab CI 清理任务。这些操作会破坏已验证的不可变发布模型，而且托管平台何时回收旧对象并不由本工具保证。若用户需要严格有界的远端对象存储，应单独选择带生命周期策略的加密对象存储，或在用户明确批准的迁移窗口轮换到新公开仓库；这不是当前脚本的自动功能。
+- GitHub Actions：`.github/workflows/remote-retention.yml`；
+- GitLab CI：`.gitlab-ci.yml`；
+- 实际压缩器：`scripts/compact-remote-history.sh`。
 
-**一个公开仓库可以备份多个服务器。** 每个服务器必须使用唯一的 `BACKUP_HOST`/`CONFIG_HOST_ID`，各自的 `hosts/<host>/backup.conf`，以及同一组公开 canonical/mirrors。数据按 `backups/<host>/` 和 `manifests/<host>/` 分区；保留只删除当前 host 的完整集合，不会删除其他 host 的集合。每个 host 也有独立 prepared state、systemd service、timer 与 HTTPS env 文件。
+它们每天定时运行，也可手动触发；对每一个备份分支构造无父提交的受验证快照，**每个 host 只保留最新两个完整集合**（archive、checksum、manifest 和正确的 `latest.txt`），并以 `force-with-lease` 替换该分支。这样普通 refs 不会随着每日备份无限累积；被移出 refs 的旧对象由 GitHub/GitLab 按其垃圾回收与保留策略异步处理，Agent 不得承诺立刻从平台缓存、fork、clone 或历史外部副本消失。
 
-对于无人值守的多服务器部署，Agent 应为每个 host 使用独立 `BACKUP_BRANCH`，例如 `backup/<host>`。不同 host 的分支可在同一公开仓库、同一 remote 中独立推进，避免一个 host 发布使另一个 host 的 prepared base 失效。只有部署了跨服务器外部协调锁时，才可让多个 host 共用同一 `BACKUP_BRANCH`。
+压缩器会先校验每个集合的文件形状、checksum、manifest、`latest.txt` 与路径；存在不完整集合、异常生成路径或意外 metadata 时会停止并**不改写**该分支。它只能在 CI 环境设置 `BACKUP_COMPACTION_CI=1` 后运行；不要从服务器备份任务或日常终端运行它。
 
-多台服务器各自使用独立 clone 时，不同服务器的本地 `flock` 不能跨服务器协调。两台服务器从同一 canonical base 同时准备时，先发布的一台会推进 canonical；另一台会安全停止并报告 `canonical moved after preparation; reprepare required`，不得自动合并或强推。为减少这种正常冲突，应为各 host 的 timer 设置错开的 `BACKUP_ON_CALENDAR`/jitter，或使用一个外部协调器；一次只让一个**共享分支**上的 host 完成“准备到发布”流程。
+启用前，Agent 必须让用户确认 GitHub Actions 或 GitLab CI 具有 `contents: write`/项目写入权限、目标备份分支允许 CI 使用 force-with-lease 更新，且同一备份仓库只启用一个平台的压缩任务。两个平台同时对同一 remote 压缩会互相竞争；虽然 `force-with-lease` 会安全失败，但不应并行启用。GitLab 需要允许 CI job token 写入仓库；GitHub 需要允许 workflow 写入仓库内容。
+
+**一个公开仓库可以备份多个服务器。** 每个服务器必须使用唯一的 `BACKUP_HOST`/`CONFIG_HOST_ID`，各自的 `hosts/<host>/backup.conf`，以及同一组公开 canonical/mirrors。数据按 `backups/<host>/` 和 `manifests/<host>/` 分区；远端压缩与本地保留都只删除当前 host 的完整集合，不会删除其他 host 的集合。每个 host 也有独立 prepared state、systemd service、timer 与 HTTPS env 文件。
+
+对于无人值守的多服务器部署，Agent 应为每个 host 使用独立 `BACKUP_BRANCH`，例如 `backup/<host>`。不同 host 的分支可在同一公开仓库、同一 remote 中独立推进与压缩，避免一个 host 发布或压缩使另一个 host 的 prepared base 失效。只有部署了跨服务器外部协调锁时，才可让多个 host 共用同一 `BACKUP_BRANCH`。
+
+多台服务器各自使用独立 clone 时，不同服务器的本地 `flock` 不能跨服务器协调。两台服务器从同一 canonical base 同时准备时，先发布的一台会推进 canonical；另一台会安全停止并报告 `canonical moved after preparation; reprepare required`，不得自动合并或强推。压缩后，干净工作副本会只接受已校验的 CI 快照并安全同步；但已有 prepared state 时不得继续发布，必须重新准备。为减少共享分支上的正常冲突，应为各 host 的 timer 设置错开的 `BACKUP_ON_CALENDAR`/jitter，或使用一个外部协调器；一次只让一个**共享分支**上的 host 完成“准备到发布”流程。
 
 ## 给 Agent：本地保留
 
-本地保留按每个 host 单独计算，一个完整集合由加密归档、对应 checksum 和 manifest 组成；孤立文件会保留并报告，不会被当成可删除备份。保留只在服务器本地执行，远端 CI 保留任务已经移除。
+本地保留按每个 host 单独计算，一个完整集合由加密归档、对应 checksum 和 manifest 组成；孤立文件会保留并报告，不会被当成可删除备份。日常备份发布仍使用本地保留数量；远端 CI 压缩则固定仅保留每 host 最近两个完整集合并重写该分支历史。
 
 ### 7. 可选 systemd
 
@@ -199,7 +207,8 @@ BACKUP_HOST=<host> scripts/migrate-legacy.sh --adopt-staged
 ## 文件说明
 
 - `docs/llm-setup-guide.zh.md`：面向 Agent 的完整、可执行部署指令；固定 URL 指向此文件。
-- `scripts/backup.sh`：准备加密备份；默认不发布。
+- `scripts/compact-remote-history.sh`：仅供 GitHub Actions 或 GitLab CI 调用的远端分支快照压缩器，固定每 host 保留最近两个完整集合。
+- `.github/workflows/remote-retention.yml` 与 `.gitlab-ci.yml`：定时或手动运行远端压缩；同一仓库只启用一个平台。
 - `scripts/publish-prepared.sh`：发布已经验证的 prepared 数据。
 - `scripts/configure-secrets.sh`：无回显保存 HTTP(S) remote token。
 - `scripts/install-systemd-timer.sh`：渲染或安装 host 专用 systemd timer。

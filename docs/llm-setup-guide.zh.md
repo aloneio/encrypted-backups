@@ -90,27 +90,32 @@ README 也是面向 Agent 的简明执行说明；本文是更完整的顺序、
 
 9. 本地保留数量与远端容量边界
    - 询问每个 host 的 `BACKUP_RETENTION_COUNT`，必须是正整数。
-   - 默认语义是本机每个 host 在**当前分支树**保留最近 3 个完整集合，不等于 Git 托管端历史对象或配额上限。
-   - 明确告诉用户：旧归档从新 commit 删除后仍在旧 Git commit 历史中可取得；不要承诺远端容量有界或已公开密文可撤回。
+   - 默认语义是本机每个 host 在当前分支树保留最近 3 个完整集合。
+   - 告知用户：远端 CI 压缩会独立固定保留每 host 最近两个完整集合并 force-with-lease 重写备份分支；这是缩减 refs 与可达历史的必要破坏性操作。
 
-10. 多服务器计划
+10. 远端压缩平台与权限
+    - 询问用户选择 GitHub Actions 或 GitLab CI，**同一仓库只启用一个平台**的压缩任务。
+    - GitHub 需要 workflow `contents: write`；GitLab 需要允许 CI job token 写入该项目和 force-with-lease 更新备份分支。
+    - 说明平台垃圾回收是异步的；压缩后不承诺旧密文立刻从缓存、fork、clone 或外部副本消失。
+
+11. 多服务器计划
     - 确认每台服务器有唯一的 host 标识和独立 `hosts/<host>/backup.conf`。
     - 说明可共用一个公开仓库与 mirrors，数据会按 host 分区。
     - 无人值守时必须为每个 host 配置独立 `BACKUP_BRANCH`，例如 `backup/<host>`；不同 host 分支可独立推进。
     - 只有用户提供跨服务器外部协调锁时，才允许多个 host 共用同一 canonical 分支；否则询问错开的 `BACKUP_ON_CALENDAR` 或外部协调方案。不同服务器的本地锁不互通。
 
-11. systemd 运行用户和组
+12. systemd 运行用户和组
     - 询问 `BACKUP_RUN_USER` 与 `BACKUP_RUN_GROUP`。
     - 明确问用户受限路径是否真的要求 root。
     - 默认使用非 root。只有用户确认权限需求后才能显式选择 `BACKUP_RUN_USER=root`。
 
-12. systemd 计划
+13. systemd 计划
     - 询问 `BACKUP_ON_CALENDAR`，例如 `daily` 或 `weekly`；多服务器共享仓库时应错开计划。
     - 先记录选择，不立即安装。
 
-13. 迁移与遗留状态
+14. 迁移与遗留状态
     - 询问这是否是新仓库，是否曾运行旧版脚本。
-    - 询问是否可能存在旧 staged 集合、已有 prepared state、未发布 commit、旧 timer、复制遗留的远端 retention CI 文件或已分叉 mirrors。
+    - 询问是否可能存在旧 staged 集合、已有 prepared state、未发布 commit、旧 timer、过时 `.github/workflows/retention.yml` 文件或已分叉 mirrors。
 
 访谈未完成时不要写配置，不要收集 token，不要准备备份，也不要安装 systemd。
 
@@ -152,7 +157,7 @@ command -v python3
 BACKUP_HOST=<host> scripts/migrate-legacy.sh
 ```
 
-该命令可能用状态 3 表示需要人工处理。不要把它当成可以忽略的普通失败。报告模式用于检查旧 staged 集合、旧命名集合、未发布或分叉历史、mirror OID、旧共享 timer 和复制遗留的远端 retention CI 文件。它不应自动修改这些状态。
+该命令可能用状态 3 表示需要人工处理。不要把它当成可以忽略的普通失败。报告模式用于检查旧 staged 集合、旧命名集合、未发布或分叉历史、mirror OID、旧共享 timer 和过时 `.github/workflows/retention.yml` 文件。它不应自动修改这些状态。
 
 只有报告确认旧 staged 集合完整、哈希有效、manifest 与 `latest.txt` 一致，而且远端和 timer 没有阻塞项时，才向用户解释并请求单独确认：
 
@@ -248,21 +253,27 @@ BACKUP_HOST=<host> scripts/configure-secrets.sh
 
 如果全部 remote 都是 SSH、SCP、`file://` 或本地路径，记录 `secret 状态` 为不需要，不运行 token helper。
 
-## 8. 远端容量、Git 历史与多服务器共享仓库
+## 8. 远端 CI 强制压缩、Git 历史与多服务器共享仓库
 
-`BACKUP_RETENTION_COUNT` 只限制当前分支树中每个 host 可见的完整集合数。例如，保留 3 组时，下一次成功发布会在新 commit 删除该 host 更旧的 archive、checksum 和 manifest；浏览当前分支时不会堆满旧文件。
+本地 `BACKUP_RETENTION_COUNT` 只控制日常发布后当前分支树中每个 host 可见的完整集合数。为防止公开 remote 的 refs 和可达历史对象不断累积，仓库提供 GitHub Actions/GitLab CI 定时压缩：
 
-这不是远端对象存储上限：Git 是追加式历史，后续 commit 删除的加密归档仍能从旧 commit 取得，GitLab/GitHub 也不会仅因当前树删除文件就保证回收历史对象。因此，当前可见保留不会限制 GitLab/GitHub 的总对象存储量；不得承诺远端容量有界，也不得把公开的旧密文当作可撤回数据。Agent 必须在配置前向用户说明这一点，并在最终汇总中说明当前保留数与远端容量边界。
+- GitHub Actions：`.github/workflows/remote-retention.yml`；
+- GitLab CI：`.gitlab-ci.yml`；
+- 共用压缩器：`scripts/compact-remote-history.sh`。
 
-不要为了腾出远端空间自动执行 history rewrite、rebase、amend、force push、删除分支或仓库，也不要添加 GitHub Actions/GitLab CI 清理任务。这些操作会破坏已验证的不可变发布模型，而且托管平台何时回收旧对象并不由本工具保证。若用户需要严格有界的远端对象存储，应单独选择带生命周期策略的加密对象存储，或在用户明确批准的迁移窗口轮换到新公开仓库；这不是当前脚本的自动功能。
+这些 GitHub Actions/GitLab CI 定时压缩任务每日调度、可手动触发，并对每个备份分支建立无父提交的快照：验证 archive、checksum、manifest 与 `latest.txt` 后，固定保留**每个 host 最近两个完整集合**，以 `force-with-lease` 替换分支。压缩器遇到不完整集合、异常生成路径或 checksum/manifest/latest 不匹配时必须停止，不改写分支。
 
-一个公开仓库可以备份多个服务器：每个服务器必须使用唯一的 `BACKUP_HOST`/`CONFIG_HOST_ID`、独立 `hosts/<host>/backup.conf`、同一公开 canonical/mirrors。文件按 `backups/<host>/` 与 `manifests/<host>/` 分区；retention 只处理当前 host 的完整集合；prepared state、systemd service、timer 与 env 文件也按 host 独立。
+启动部署前必须让用户选择一个平台：GitHub Actions 或 GitLab CI。仓库默认由 GitLab CI 运行；GitHub workflow 只有项目变量 `BACKUP_ENABLE_GITHUB_COMPACTION=true` 时才会执行。不得同时启用 GitHub 变量和 GitLab schedule。GitHub workflow 需要 `contents: write`；GitLab 项目需要允许 CI job token 写入与 force-with-lease 更新目标备份分支。平台随后会按自身策略异步回收失去引用的对象；不要保证旧密文立即从平台缓存、fork、clone 或已经下载的副本消失。
 
-无人值守的多服务器共享仓库必须为每个 host 使用独立 `BACKUP_BRANCH`，例如 `backup/<host>`。不同 host 分支可独立推进，因此一个 host 发布不会使另一个 host 的 prepared base 失效。只有用户提供跨服务器外部协调锁时，才允许多个 host 共用同一 canonical 分支。
+压缩后，干净的服务器工作副本会验证并接受受信任的 CI 快照，再准备新备份；但已有 prepared state 时必须停止并重新准备，不能发布基于旧历史的 state。压缩器本身只能在 CI 显式设置 `BACKUP_COMPACTION_CI=1` 后运行，服务器备份任务不得直接调用。
+
+一个公开仓库可以备份多个服务器：每个服务器必须使用唯一的 `BACKUP_HOST`/`CONFIG_HOST_ID`、独立 `hosts/<host>/backup.conf`、同一公开 canonical/mirrors。文件按 `backups/<host>/` 与 `manifests/<host>/` 分区；本地保留和远端压缩都只处理当前 host 的完整集合；prepared state、systemd service、timer 与 env 文件也按 host 独立。
+
+无人值守的多服务器共享仓库必须为每个 host 使用独立 `BACKUP_BRANCH`，例如 `backup/<host>`。不同 host 分支可独立推进与压缩，因此一个 host 发布或压缩不会使另一个 host 的 prepared base 失效。只有用户提供跨服务器外部协调锁时，才允许多个 host 共用同一 canonical 分支。
 
 不同服务器的本地 `flock` 不互通。若两台服务器从同一个 canonical base 同时准备，先发布的会推进 canonical，后发布的必须安全停止并报告 `canonical moved after preparation; reprepare required`。不得自动合并或强推。共享分支时，要求用户为各 host 设置错开的 `BACKUP_ON_CALENDAR`/jitter，或使用外部协调器；一次只让一个 host 完成“准备到发布”流程。
 
-## 10. 第一次准备
+## 9. 第一次准备
 
 再次确认 `git status --short` 没有输出，然后只准备：
 
@@ -272,7 +283,7 @@ BACKUP_HOST=<host> BACKUP_PUSH=0 scripts/backup.sh
 
 不要在首次确认前推荐任何一步准备加发布的兼容快捷方式。准备成功后，不要再次运行准备命令。
 
-## 11. 检查严格 prepared state 与产物
+## 10. 检查严格 prepared state 与产物
 
 从 `latest.txt` 和 prepared state 取得当前 artifact 标识与精确路径。完整检查：
 
@@ -299,7 +310,7 @@ sha256sum -c backups/<host>/<artifact-id>.sha256
 
 如果任一检查失败，停止，不发布。先记录失败点，再由用户决定如何人工清理无效 prepared 状态和对应暂存产物。不得自动删除或重置。
 
-## 12. 明确确认后发布
+## 11. 明确确认后发布
 
 向用户展示以下检查结果，不含 secret：
 
@@ -309,7 +320,8 @@ sha256sum -c backups/<host>/<artifact-id>.sha256
 - canonical、mirrors 与 branch；
 - 用户控制的外部恢复处理结果；
 - 本地 retention 删除清单；
-- 当前分支树的每 host 保留数，以及“Git 历史对象仍可能继续占用远端空间”的容量边界；
+- 当前分支树的每 host 本地保留数、CI 远端压缩的固定两个完整集合，以及 Git 托管端异步回收边界；
+- 选定的压缩平台、写权限和最近一次压缩状态；
 - 多服务器计划（host 标识与错开/协调状态）。
 
 只有用户明确确认可以发布，才运行：
@@ -326,7 +338,7 @@ retention 回滚数据必须先持久化到 `.git/local-backup-push-kit/recovery
 
 若部分 mirror 失败，记录 commit OID、每个远端 OID 和待处理 mirrors。再次运行同一条 `scripts/publish-prepared.sh` 命令，只重试同一个 commit OID。不要重新准备归档，不要改写 canonical，不要强制更新 mirror。
 
-## 13. 可选 systemd
+## 12. 可选 systemd
 
 只有用户在访谈中选择自动运行后才继续。先渲染，不写系统目录：
 
@@ -352,7 +364,7 @@ BACKUP_HOST=<host> scripts/install-systemd-timer.sh --migrate-legacy
 
 若选择 `BACKUP_RUN_USER=root`，确认 service 的 `ExecStart` 指向 `${BACKUP_ROOT_LAUNCHER_DIR:-/usr/local/libexec/local-backup-push-kit}/backup-launcher`，不能直接指向仓库中的 `scripts/backup.sh`。launcher、service 与 timer 必须作为同一安装事务回滚。
 
-## 14. 失败与迁移决策树
+## 13. 失败与迁移决策树
 
 ### 缺少用户提供的 age 公钥
 
@@ -369,6 +381,10 @@ BACKUP_HOST=<host> scripts/install-systemd-timer.sh --migrate-legacy
 ### 路径不安全或需要 root
 
 如果候选路径是仓库本身、仓库子路径、仓库祖先、重复路径或符号链接路径，拒绝该路径并停止，等待用户重新确认。若读取路径需要 root，先说明最小权限替代方案。只有确实无法用专用非 root 用户读取且用户明确同意，才配置 `BACKUP_RUN_USER=root`。
+
+### 远端压缩失败或刚完成压缩
+
+CI 压缩仅在完整校验后使用 `force-with-lease` 替换分支；若 lease 失败，等待下一次 CI 调度或由用户手动触发，不得在服务器端强推。服务器在干净状态下检测到已验证的无父提交压缩快照时，会安全切换到该快照；若存在 prepared state、未提交修改或异常快照，停止并要求重新准备或人工审核。
 
 ### 仓库不干净或历史异常
 
@@ -390,7 +406,7 @@ canonical 是唯一同步基准。准备前本地只能与 canonical 相同或�
 
 ### 旧 timer 或复制遗留的 CI
 
-发现旧共享 timer 时停止安装，先审核再由用户确认迁移。发现复制遗留的远端 retention CI 文件时停止，提醒用户人工审核并移除。不要自动删除。当前 retention 只在服务器本地执行。
+发现旧共享 timer 时停止安装，先审核再由用户确认迁移。发现过时 `.github/workflows/retention.yml` 时停止，提醒用户人工审核并移除。不要自动删除。当前远端压缩只能使用本仓库的 `remote-retention.yml` 或 `.gitlab-ci.yml`。
 
 ### 准备失败
 
@@ -404,7 +420,7 @@ canonical 是唯一同步基准。准备前本地只能与 canonical 相同或�
 
 停止发布。报告 checksum、只读列表或预期文件检查中的失败项，不接触解密材料。由用户在外部恢复环境修正验证流程，或者人工放弃该 prepared set。
 
-## 15. 最终汇总模板
+## 14. 最终汇总模板
 
 完成或停止时都要给出下面的汇总。汇总不含 token 值、公钥完整值、解密材料或恢复明文。对应解密材料由用户在仓库和服务器自动化流程之外离线保管，Agent 不接触。
 

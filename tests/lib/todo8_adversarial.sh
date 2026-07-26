@@ -199,7 +199,7 @@ scenario_migration_old_ci() {
   if todo8_run "$TODO8_FIXTURE/adopt.log" bash "$TODO8_REPO/scripts/migrate-legacy.sh" --adopt-staged; then return 2; fi
   todo8_snapshot "$TODO8_FIXTURE/after"
   todo8_assert_snapshot "$TODO8_FIXTURE/before" "$TODO8_FIXTURE/after" || return 2
-  grep -Fq 'copied retention CI prevents safe adoption' "$TODO8_FIXTURE/adopt.log" || return 2
+  grep -Fq 'copied legacy retention CI prevents safe adoption' "$TODO8_FIXTURE/adopt.log" || return 2
 }
 
 todo8_wait_for_path() {

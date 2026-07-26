@@ -201,6 +201,6 @@ scenario_migration_ci() {
   todo8_setup ci || return 2
   mkdir -p "$TODO8_REPO/.github/workflows"
   printf 'permissions:\n  contents: write\n' >"$TODO8_REPO/.github/workflows/retention.yml"
-  todo8_expect_report_issue 'copied retention CI' || return 2
-  grep -Fq 'remove the copied CI file manually' "$TODO8_FIXTURE/report.log" || return 2
+  todo8_expect_report_issue 'copied legacy retention CI' || return 2
+  grep -Fq 'remove the copied legacy CI file manually' "$TODO8_FIXTURE/report.log" || return 2
 }

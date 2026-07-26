@@ -121,7 +121,9 @@ PY
   todo10_reject_pattern '/etc/encrypted-git-backup\.env|encrypted-git-backup\.(service|timer)' || return 2
   todo10_reject_pattern 'github-main|gitlab-main' || return 2
   todo10_reject_pattern 'age-keygen|age[[:space:]]+-d|age[[:space:]].*-i[[:space:]]|identity\.txt' || return 2
-  todo10_reject_pattern '\.github/workflows/retention\.yml|\.gitlab-ci\.yml' || return 2
+  todo10_require_text 'remote-retention.yml' || return 2
+  todo10_require_text 'compact-remote-history.sh' || return 2
+  todo10_require_text 'compact-remote-history.sh' || return 2
   todo10_reject_pattern 'git[[:space:]]+(reset|clean)|git[[:space:]]+push[^\n]*--force|git[[:space:]]+rebase' || return 2
   todo10_reject_pattern '暂存区[^。\n]*retention 删除项' || return 2
   todo10_require_text '只接受用户提供的 `age1...` 公钥' || return 2
@@ -159,10 +161,11 @@ scenario_llm_interview_sequence() {
     '7. 公开 metadata 确认' \
     '8. token 安全输入方式' \
     '9. 本地保留数量与远端容量边界' \
-    '10. 多服务器计划' \
-    '11. systemd 运行用户和组' \
-    '12. systemd 计划' \
-    '13. 迁移与遗留状态' \
+    '10. 远端压缩平台与权限' \
+    '11. 多服务器计划' \
+    '12. systemd 运行用户和组' \
+    '13. systemd 计划' \
+    '14. 迁移与遗留状态' \
     '检查服务器和当前仓库' \
     '向用户展示候选路径、排除项、公开 manifest 元数据和风险' \
     '等待用户明确确认路径清单及公开性' \
@@ -180,9 +183,9 @@ scenario_llm_interview_sequence() {
 scenario_llm_remote_retention_and_multi_host() {
   for text in \
     '当前分支树中每个 host 可见的完整集合数' \
-    '不会限制 GitLab/GitHub 的总对象存储量' \
-    '旧归档从新 commit 删除后仍在旧 Git commit 历史中可取得' \
-    '不要为了腾出远端空间自动执行 history rewrite' \
+    'GitHub Actions/GitLab CI 定时压缩' \
+    '每个 host 最近两个完整集合' \
+    'force-with-lease 重写备份分支' \
     '一个公开仓库可以备份多个服务器' \
     '每个服务器必须使用唯一的 `BACKUP_HOST`/`CONFIG_HOST_ID`' \
     '无人值守的多服务器共享仓库必须为每个 host 使用独立 `BACKUP_BRANCH`' \
@@ -224,7 +227,7 @@ scenario_llm_final_summary() {
     '解密材料状态：Agent 未接触'; do
     todo10_require_text "$text" || return 2
   done
-  todo10_require_section_order '## 15. 最终汇总模板' \
+  todo10_require_section_order '## 14. 最终汇总模板' \
     '已确认备份路径：' \
     '已确认排除规则：' \
     'canonical：' \

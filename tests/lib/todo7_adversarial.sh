@@ -129,7 +129,7 @@ scenario_source_only_broad_add() {
 
 scenario_source_only_missing_helper() {
   local relative
-  for relative in scripts/lib/retention.sh scripts/publish-prepared.sh scripts/install-systemd-timer.sh scripts/migrate-legacy.sh scripts/configure-secrets.sh tests/lib/todo6.sh tests/lib/todo8.sh tests/lib/todo8_adversarial.sh; do
+  for relative in scripts/lib/retention.sh scripts/publish-prepared.sh scripts/install-systemd-timer.sh scripts/migrate-legacy.sh scripts/configure-secrets.sh scripts/compact-remote-history.sh tests/lib/todo6.sh tests/lib/todo8.sh tests/lib/todo8_adversarial.sh tests/lib/todo12.sh; do
     todo7_setup missing-helper || return 2
     rm -f -- "$TODO7_REPO/$relative"
     todo7_expect_failure "$TODO7_FIXTURE/output.log" "required source file missing: $relative" || return 2

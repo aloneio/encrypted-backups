@@ -39,7 +39,10 @@ scenario_source_only() {
 
 scenario_ci_absence() {
   [[ ! -e "$PROJECT_ROOT/.github/workflows/retention.yml" ]] || return 2
-  [[ ! -e "$PROJECT_ROOT/.gitlab-ci.yml" ]] || return 2
+  [[ -f "$PROJECT_ROOT/.github/workflows/remote-retention.yml" && ! -L "$PROJECT_ROOT/.github/workflows/remote-retention.yml" ]] || return 2
+  [[ -f "$PROJECT_ROOT/.gitlab-ci.yml" && ! -L "$PROJECT_ROOT/.gitlab-ci.yml" ]] || return 2
+  grep -Fq 'scripts/compact-remote-history.sh' "$PROJECT_ROOT/.github/workflows/remote-retention.yml" || return 2
+  grep -Fq 'scripts/compact-remote-history.sh' "$PROJECT_ROOT/.gitlab-ci.yml" || return 2
 }
 
 scenario_docs_key_policy() {

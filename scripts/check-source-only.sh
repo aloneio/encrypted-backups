@@ -21,6 +21,7 @@ required_files=(
   hosts/example/backup.conf
   scripts/backup.sh
   scripts/check-source-only.sh
+  scripts/compact-remote-history.sh
   scripts/configure-secrets.sh
   scripts/git-askpass.sh
   scripts/install-systemd-timer.sh
@@ -49,6 +50,7 @@ required_files=(
   tests/lib/todo9.sh
   tests/lib/todo10.sh
   tests/lib/todo11.sh
+  tests/lib/todo12.sh
   tests/lib/f2_blockers.sh
 )
 
@@ -58,9 +60,9 @@ for relative in "${required_files[@]}"; do
   fi
 done
 
-for ci_file in .github/workflows/retention.yml .gitlab-ci.yml; do
+for ci_file in .github/workflows/retention.yml; do
   if [[ -e "$REPO_DIR/$ci_file" || -L "$REPO_DIR/$ci_file" ]]; then
-    mark_bad "mutating retention CI must be absent: $ci_file"
+    mark_bad "obsolete mutating retention CI must be absent: $ci_file"
   fi
 done
 
@@ -115,6 +117,20 @@ for document in README.md docs/llm-setup-guide.zh.md; do
   fi
 done
 
+for ci_file in .github/workflows/remote-retention.yml .gitlab-ci.yml; do
+  [[ -f "$REPO_DIR/$ci_file" && ! -L "$REPO_DIR/$ci_file" ]] || mark_bad "required remote compaction CI file missing or unsafe: $ci_file"
+done
+if [[ -f "$REPO_DIR/.github/workflows/remote-retention.yml" ]]; then
+  grep -Fq 'scripts/compact-remote-history.sh' "$REPO_DIR/.github/workflows/remote-retention.yml" || \
+    mark_bad 'GitHub remote compaction workflow must invoke the compaction script'
+  grep -Fq 'contents: write' "$REPO_DIR/.github/workflows/remote-retention.yml" || \
+    mark_bad 'GitHub remote compaction workflow must declare contents write permission'
+fi
+if [[ -f "$REPO_DIR/.gitlab-ci.yml" ]]; then
+  grep -Fq 'scripts/compact-remote-history.sh' "$REPO_DIR/.gitlab-ci.yml" || \
+    mark_bad 'GitLab remote compaction pipeline must invoke the compaction script'
+fi
+
 if [[ -f "$REPO_DIR/scripts/backup.sh" ]]; then
   grep -Fq 'PUSH="${BACKUP_PUSH:-0}"' "$REPO_DIR/scripts/backup.sh" || \
     mark_bad 'scripts/backup.sh no longer defaults BACKUP_PUSH to disabled'
@@ -122,6 +138,16 @@ if [[ -f "$REPO_DIR/scripts/backup.sh" ]]; then
     mark_bad 'scripts/backup.sh no longer gates commit/push behind BACKUP_PUSH=1'
   grep -Fq 'publish_prepared_state_machine' "$REPO_DIR/scripts/backup.sh" || \
     mark_bad 'backup publication should use the immutable publisher state machine'
+  grep -Fq 'validate_compaction_snapshot_commit' "$REPO_DIR/scripts/lib/publication-schema.sh" || \
+    mark_bad 'publication schema must validate CI compaction snapshots'
+fi
+if [[ -f "$REPO_DIR/scripts/compact-remote-history.sh" ]]; then
+  [[ -x "$REPO_DIR/scripts/compact-remote-history.sh" ]] || \
+    mark_bad 'scripts/compact-remote-history.sh must be executable'
+  grep -Fq 'BACKUP_COMPACTION_CI' "$REPO_DIR/scripts/compact-remote-history.sh" || \
+    mark_bad 'remote compaction script must require an explicit CI marker'
+  grep -Fq -- '--force-with-lease' "$REPO_DIR/scripts/compact-remote-history.sh" || \
+    mark_bad 'remote compaction script must use force-with-lease'
 fi
 if [[ -f "$REPO_DIR/hosts/example/backup.conf" ]]; then
   grep -Fq 'BACKUP_REMOTES' "$REPO_DIR/hosts/example/backup.conf" || \

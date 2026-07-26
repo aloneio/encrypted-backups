@@ -205,10 +205,10 @@ report_operational_files() {
     printf 'RECOVERY: reinstall with BACKUP_HOST=%q scripts/install-systemd-timer.sh so root execution uses the trusted launcher.\n' "$HOST_ID"
     REPORT_ISSUES=$((REPORT_ISSUES + 1))
   fi
-  for path in .github/workflows/retention.yml .gitlab-ci.yml; do
+  for path in .github/workflows/retention.yml; do
     if [[ -e "$REPO_DIR/$path" || -L "$REPO_DIR/$path" ]]; then
-      printf 'ISSUE: copied retention CI file %s\n' "$path"
-      printf 'RECOVERY: review and remove the copied CI file manually; this helper does not delete files.\n'
+      printf 'ISSUE: copied legacy retention CI file %s\n' "$path"
+      printf 'RECOVERY: review and remove the copied legacy CI file manually; this helper does not delete files.\n'
       REPORT_ISSUES=$((REPORT_ISSUES + 1))
     fi
   done
@@ -365,8 +365,7 @@ run_adoption() {
   REPORT_ISSUES=0
   report_remote_state >/dev/null
   [[ "$REPORT_ISSUES" -eq 0 ]] || fail "remote or branch divergence prevents safe adoption"
-  [[ ! -e "$REPO_DIR/.github/workflows/retention.yml" && ! -L "$REPO_DIR/.github/workflows/retention.yml" ]] || fail "copied retention CI prevents safe adoption"
-  [[ ! -e "$REPO_DIR/.gitlab-ci.yml" && ! -L "$REPO_DIR/.gitlab-ci.yml" ]] || fail "copied retention CI prevents safe adoption"
+  [[ ! -e "$REPO_DIR/.github/workflows/retention.yml" && ! -L "$REPO_DIR/.github/workflows/retention.yml" ]] || fail "copied legacy retention CI prevents safe adoption"
   for name in encrypted-github-backup encrypted-git-backup; do
     for path in "$SYSTEMD_DIR/$name.service" "$SYSTEMD_DIR/$name.timer"; do
       [[ ! -e "$path" && ! -L "$path" ]] || fail "legacy root timer units prevent safe adoption"

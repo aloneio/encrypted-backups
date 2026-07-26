@@ -41,7 +41,7 @@ scenario_readme_contract() {
   todo9_require_text '<canonical-remote>' "$PROJECT_ROOT/hosts/example/backup.conf" || return 2
   todo9_require_text '<positive-integer>' "$PROJECT_ROOT/hosts/example/backup.conf" || return 2
   todo9_require_text '每个 host 应使用独立分支，例如 backup/<host-id>' "$PROJECT_ROOT/hosts/example/backup.conf" || return 2
-  todo9_require_text '不会限制旧 Git commit 历史对象或远端托管配额' "$PROJECT_ROOT/hosts/example/backup.conf" || return 2
+  todo9_require_text '远端 GitHub Actions/GitLab CI 压缩独立固定每个 host 最近两个完整集合' "$PROJECT_ROOT/hosts/example/backup.conf" || return 2
   if grep -Eq 'github-main|gitlab-main|/srv/example|BACKUP_TOKEN_|GITHUB_TOKEN|GITLAB_TOKEN' "$PROJECT_ROOT/hosts/example/backup.conf"; then
     say_error 'Todo 9 example config contains an old literal or token field'
     return 2
@@ -59,7 +59,9 @@ scenario_readme_contract() {
   todo9_require_text '外部临时目录' || return 2
   todo9_reject_pattern 'export[[:space:]]+BACKUP_TOKEN_' || return 2
   todo9_reject_pattern 'git[[:space:]]+pull[[:space:]]+--rebase|git[[:space:]]+rebase|git[[:space:]]+push[^\n]*--force' || return 2
-  todo9_reject_pattern '\.github/workflows/retention\.yml|\.gitlab-ci\.yml' || return 2
+  todo9_reject_pattern '\.github/workflows/retention\.yml' || return 2
+  todo9_require_text 'remote-retention.yml' || return 2
+  todo9_require_text 'compact-remote-history.sh' || return 2
 }
 
 scenario_readme_novice_flow() {
@@ -106,13 +108,15 @@ scenario_readme_local_remotes() {
   todo9_require_text '父提交' || return 2
   todo9_require_text '每个 host 单独计算' || return 2
   todo9_require_text '完整集合' || return 2
-  todo9_require_text '远端 CI 保留任务已经移除' || return 2
+  todo9_require_text '远端压缩任务' || return 2
 }
 
 scenario_readme_remote_retention_and_multi_host() {
   for text in \
     '当前分支树中每个 host 可见的完整集合数' \
-    '不会限制 GitLab/GitHub 的总对象存储量' \
+    'CI 定时压缩' \
+    '最近两个完整集合' \
+    '以 `force-with-lease` 替换该分支' \
     '一个公开仓库可以备份多个服务器' \
     '每个服务器必须使用唯一的 `BACKUP_HOST`/`CONFIG_HOST_ID`' \
     '不同服务器的本地 `flock` 不能跨服务器协调' \

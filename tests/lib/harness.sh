@@ -651,18 +651,10 @@ scenario_retention_empty() {
   mkdir -p "$fixture/backups/host-a" "$fixture/manifests/host-a" "$fixture/bin"
   install_common_shims "$fixture"
   script="$fixture/retention.sh"
-  {
-    printf '%s\n' '#!/usr/bin/env bash' 'set -euo pipefail'
-    while IFS= read -r line; do
-      case "$line" in
-        '          set -euo pipefail') ;;
-        '          '*) printf '%s\n' "${line#          }" ;;
-      esac
-    done < <(tail -n +21 "$PROJECT_ROOT/.github/workflows/retention.yml")
-  } >"$script"
+  cp "$PROJECT_ROOT/scripts/lib/retention.sh" "$script"
   chmod +x "$script"
   output="$fixture/output.log"
-  run_captured "$output" 8 env PATH="$fixture/bin:$PATH" FAKE_GIT_LOG="$fixture/git.log" FAKE_TAR_LOG="$fixture/tar.log" FAKE_AGE_LOG="$fixture/age.log" FAKE_PYTHON_CODE="$fixture/code" FAKE_NETWORK_MARKER="$fixture/network" bash -c 'cd "$1" && "$2"' _ "$fixture" "$script"
+  run_captured "$output" 8 env PATH="$fixture/bin:$PATH" FAKE_GIT_LOG="$fixture/git.log" FAKE_TAR_LOG="$fixture/tar.log" FAKE_AGE_LOG="$fixture/age.log" FAKE_PYTHON_CODE="$fixture/code" FAKE_NETWORK_MARKER="$fixture/network" bash -c 'cd "$1" && source "$2" && HOST_ID=host-a REPO_DIR="$1" RETENTION_COUNT=2 compute_retention_deletions && [[ ${#RETENTION_DELETIONS[@]} -eq 0 ]]' _ "$fixture" "$script"
   status=$?
   if [[ "$status" -ne 0 ]]; then known_failure "empty retention host aborts on unmatched ls glob"; return $?; fi
   return 0
@@ -1447,6 +1439,7 @@ source "$TESTS_DIR/lib/todo8_adversarial.sh"
 source "$TESTS_DIR/lib/todo9.sh"
 source "$TESTS_DIR/lib/todo10.sh"
 source "$TESTS_DIR/lib/todo11.sh"
+source "$TESTS_DIR/lib/todo12.sh"
 source "$TESTS_DIR/lib/f2_blockers.sh"
 
 todo3_install_git_wrapper() {
@@ -1700,6 +1693,12 @@ run_selector_function() {
     systemd-identity-defaults) scenario_systemd_identity_defaults ;;
     systemd-env-validation) scenario_systemd_env_validation ;;
     token-entry-eof) scenario_token_entry_eof ;;
+    remote-compaction-retains-two) scenario_remote_compaction_rewrites_to_two_sets ;;
+    remote-compaction-all-branches) scenario_remote_compaction_all_branches ;;
+    remote-compaction-requires-ci) scenario_remote_compaction_requires_ci_marker ;;
+    remote-compaction-noop) scenario_remote_compaction_noop_at_two_sets ;;
+    remote-compaction-malformed) scenario_remote_compaction_rejects_malformed_set ;;
+    compaction-snapshot-fast-forward) scenario_compaction_snapshot_fast_forward ;;
     e2e-prepare-decrypt-publish) scenario_e2e_prepare_decrypt_publish ;;
     e2e-mirror-retry) scenario_e2e_mirror_retry ;;
     e2e-multi-host-retention) scenario_e2e_multi_host_retention ;;

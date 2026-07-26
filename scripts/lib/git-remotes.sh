@@ -209,7 +209,12 @@ synchronize_canonical_before_prepare() {
   elif publication_git merge-base --is-ancestor "$canonical_oid" "$LOCAL_HEAD_OID"; then
     fail "local BACKUP_BRANCH is ahead of canonical; publish or reconcile it before backup"
   else
-    fail "local BACKUP_BRANCH diverges from canonical; reconcile it before backup"
+    validate_compaction_snapshot_commit "$canonical_oid" "$LOCAL_HEAD_OID" || \
+      fail "canonical diverges from local history and is not a validated compaction snapshot"
+    publication_git update-ref "refs/heads/$PUSH_BRANCH" "$canonical_oid" "$LOCAL_HEAD_OID" || \
+      fail "cannot replace local BACKUP_BRANCH with validated compaction snapshot"
+    publication_git read-tree --reset -u "$canonical_oid" || \
+      fail "cannot update clean worktree to validated compaction snapshot"
   fi
   LOCAL_HEAD_OID="$(publication_git rev-parse HEAD)"
   [[ "$LOCAL_HEAD_OID" == "$canonical_oid" ]] || fail "local HEAD does not equal fetched canonical OID"
@@ -239,19 +244,33 @@ preflight_canonical_before_commit() {
 
 preflight_remote_after_commit() {
   local remote="$1" base_oid="$2" committed_oid="$3" oid
+  CURRENT_REMOTE_NEEDS_COMPACTION_FORCE=0
   query_remote_branch "$remote" "$PUSH_BRANCH"
   oid="$REMOTE_BRANCH_OID"
-  [[ -z "$oid" || "$oid" == "$base_oid" || "$oid" == "$committed_oid" ]] || fail "remote divergence: remote=$remote remote_oid=$oid"
-  if [[ "$REMOTE_BRANCH_EXISTS" == "1" ]]; then
-    fetch_remote_branch "$remote" "$PUSH_BRANCH"
-    [[ "$FETCHED_REMOTE_OID" == "$oid" ]] || fail "remote '$remote' moved during preflight"
+  if [[ -z "$oid" || "$oid" == "$base_oid" || "$oid" == "$committed_oid" ]]; then
+    if [[ "$REMOTE_BRANCH_EXISTS" == "1" ]]; then
+      fetch_remote_branch "$remote" "$PUSH_BRANCH"
+      [[ "$FETCHED_REMOTE_OID" == "$oid" ]] || fail "remote '$remote' moved during preflight"
+    fi
+    CURRENT_REMOTE_OID="$oid"
+    return 0
   fi
+  [[ "$remote" != "$CANONICAL_REMOTE" ]] || fail "remote divergence: remote=$remote remote_oid=$oid"
+  fetch_remote_branch "$remote" "$PUSH_BRANCH"
+  [[ "$FETCHED_REMOTE_OID" == "$oid" ]] || fail "remote '$remote' moved during preflight"
+  validate_compaction_snapshot_commit "$base_oid" "$oid" || \
+    fail "remote divergence: remote=$remote remote_oid=$oid"
   CURRENT_REMOTE_OID="$oid"
+  CURRENT_REMOTE_NEEDS_COMPACTION_FORCE=1
 }
 
 push_commit_to_remote() {
   local remote="$1" oid="$2"
-  git_for_remote "$remote" push "$remote" "$oid:refs/heads/$PUSH_BRANCH"
+  if [[ "${CURRENT_REMOTE_NEEDS_COMPACTION_FORCE:-0}" == 1 ]]; then
+    git_for_remote "$remote" push "$remote" "$oid:refs/heads/$PUSH_BRANCH" "--force-with-lease=refs/heads/$PUSH_BRANCH:$CURRENT_REMOTE_OID"
+  else
+    git_for_remote "$remote" push "$remote" "$oid:refs/heads/$PUSH_BRANCH"
+  fi
 }
 
 publish_prepared_state_machine() {
