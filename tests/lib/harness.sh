@@ -1657,6 +1657,7 @@ run_selector_function() {
     multi-host) scenario_retention_multi_host ;;
     multi-host-independent-branches) scenario_multi_host_independent_branches ;;
     retention-old-new) scenario_retention_old_new ;;
+    retention-rename-detection) scenario_retention_rename_detection ;;
     retention-multi-host) scenario_retention_multi_host ;;
     latest-repair) scenario_latest_repair ;;
     retention-orphan) scenario_retention_orphan ;;

@@ -60,7 +60,7 @@ todo5_install_precommit_failure_wrapper() {
 set -u
 args=("$@")
 if [[ "${args[0]:-}" == -C ]]; then args=("${args[@]:2}"); fi
-if [[ "${args[0]:-}" == diff && " ${args[*]} " == *' --cached --name-only -z '* ]]; then
+if [[ "${args[0]:-}" == diff && " ${args[*]} " == *' --cached '* && " ${args[*]} " == *' --name-only '* && " ${args[*]} " == *' -z '* ]]; then
   count=0
   [[ -f "${TODO5_DIFF_COUNTER:?}" ]] && count="$(<"$TODO5_DIFF_COUNTER")"
   count=$((count + 1))

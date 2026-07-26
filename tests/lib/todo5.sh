@@ -136,6 +136,28 @@ PY
   todo5_assert_success_inventory
 }
 
+scenario_retention_rename_detection() {
+  todo5_setup rename-detection || return 2
+  mkdir -p "$TODO5_REPO/manifests/testbox"
+  printf '{"shared":"rename candidate"}\n' >"$TODO5_REPO/manifests/testbox/old.json"
+  todo5_finalize_setup || return 2
+  cp "$TODO5_REPO/manifests/testbox/old.json" "$TODO5_REPO/manifests/testbox/new.json"
+  rm -f "$TODO5_REPO/manifests/testbox/old.json"
+  /usr/bin/git -C "$TODO5_REPO" add -- manifests/testbox/old.json manifests/testbox/new.json || return 2
+  /usr/bin/git -C "$TODO5_REPO" config diff.renames true
+  [[ "$(/usr/bin/git -C "$TODO5_REPO" diff --cached --name-only | wc -l)" == 1 ]] || return 2
+  [[ "$(/usr/bin/git -C "$TODO5_REPO" diff --cached --no-renames --name-only | wc -l)" == 2 ]] || return 2
+  (
+    REPO_DIR="$TODO5_REPO"
+    source "$TODO5_REPO/scripts/lib/prepare.sh"
+    PREPARED_INDEX_PATHS=(
+      "manifests/testbox/old.json"
+      "manifests/testbox/new.json"
+    )
+    require_exact_prepared_index
+  ) || return 2
+}
+
 scenario_retention_empty() {
   todo5_setup empty || return 2
   todo5_finalize_setup || return 2

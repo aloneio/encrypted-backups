@@ -62,7 +62,7 @@ require_exact_prepared_index() {
   for relative in "${expected_paths[@]}"; do
     expected["$relative"]=1
   done
-  mapfile -d '' -t actual_paths < <(GIT_MASTER=1 git -C "$REPO_DIR" diff --cached --name-only -z)
+  mapfile -d '' -t actual_paths < <(GIT_MASTER=1 git -C "$REPO_DIR" diff --cached --no-renames --name-only -z)
   [[ ${#actual_paths[@]} -eq ${#expected_paths[@]} ]] || fail "prepared index does not contain exactly the recorded paths"
   for actual in "${actual_paths[@]}"; do
     [[ -n "${expected[$actual]:-}" ]] || fail "prepared index contains an unrecorded path: $actual"

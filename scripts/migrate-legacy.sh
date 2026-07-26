@@ -77,7 +77,7 @@ load_migration_context() {
 }
 
 staged_paths() {
-  GIT_MASTER=1 git -C "$REPO_DIR" diff --cached --name-only -z
+  GIT_MASTER=1 git -C "$REPO_DIR" diff --cached --no-renames --name-only -z
 }
 
 classify_staged_set() {
