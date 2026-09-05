@@ -1,0 +1,11 @@
+{
+  "host_id": "oci1",
+  "timestamp_utc": "2026-09-05T16-19-22Z-195352840",
+  "encrypted_archive": "backups/oci1/2026-09-05T16-19-22Z-195352840.tar.zst.age",
+  "encrypted_archive_sha256": "2fb0dd0883df09da6d4dd863702ff8e495758be140265484093acedcabb556b3",
+  "included_paths": [
+    "/var/lib/local-backup-snapshots/oci1/grok2api-control",
+    "/var/lib/local-backup-snapshots/oci1/newapi-control",
+    "/var/lib/local-backup-snapshots/oci1/backup-runtime-recovery"
+  ]
+}
