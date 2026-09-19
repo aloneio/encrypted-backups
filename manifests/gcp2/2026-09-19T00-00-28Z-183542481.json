@@ -1,0 +1,11 @@
+{
+  "host_id": "gcp2",
+  "timestamp_utc": "2026-09-19T00-00-28Z-183542481",
+  "encrypted_archive": "backups/gcp2/2026-09-19T00-00-28Z-183542481.tar.zst.age",
+  "encrypted_archive_sha256": "6e0826663779043938f858c87bd253a892a4c69651e7a8c84609a7e4a8a50081",
+  "included_paths": [
+    "/home/xwzy/CLIProxyAPI/docker-compose.yml",
+    "/home/xwzy/CLIProxyAPI/.env",
+    "/home/xwzy/npm/docker-compose.yml"
+  ]
+}
