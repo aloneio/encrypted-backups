@@ -1,0 +1,34 @@
+# Local development and orchestration artifacts.
+.omo
+.pi-loop.json.lock
+
+# Ignore plaintext backup artifacts and secrets by default.
+*.tar
+*.tar.zst
+*.zip
+*.7z
+*.sql
+*.dump
+*.bak
+*.key
+*.pem
+*.env
+*.sqlite
+*.db
+*.log
+id_*
+*_rsa
+*_ed25519
+age-identity*
+
+# Allow encrypted backup artifacts.
+!*.tar.zst.age
+
+# Local scratch.
+tmp/
+staging/
+plaintext/
+work/
+.env
+logs/
+__pycache__/
