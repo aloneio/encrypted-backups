@@ -1,0 +1,29 @@
+name: Compact public backup history
+
+on:
+  schedule:
+    - cron: '23 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: public-backup-history-compaction
+  cancel-in-progress: false
+
+jobs:
+  compact:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Retain two complete encrypted backup sets per host
+        env:
+          BACKUP_COMPACTION_CI: '1'
+          BACKUP_COMPACTION_REMOTE: origin
+          BACKUP_COMPACTION_ALL_BRANCHES: '1'
+          BACKUP_COMPACTION_KEEP: '2'
+        run: bash scripts/compact-remote-history.sh
