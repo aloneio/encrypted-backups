@@ -1,0 +1,226 @@
+# Local Backup Push Kit
+
+> **本文是给部署 Agent 看的执行说明。**
+>
+> 如果你是用户，请把本仓库地址和本文开头交给有服务器操作权限的 Agent；Agent 必须继续读取固定的详细指令：
+> `https://gitlab.com/aloneio/local-backup-push-kit/-/raw/main/docs/llm-setup-guide.zh.md`。
+
+这是一个把服务器上的恢复资料做成**加密归档并发布到公开 Git 仓库**的工具包。它先在本机打包并用用户提供的 age 公钥加密，再提交加密归档、校验和和 manifest。公开 Git 备份仓库不含任何解密材料、token 或恢复明文。
+
+## 给 Agent：你要实现的结果
+
+协助用户在拥有备份源数据的服务器上完成：确认范围 → 写配置 → 只准备加密备份 → 用户确认恢复验证 → 发布到公开备份仓库 → 可选安装 systemd。不要跳过用户确认，也不要只给出概念建议。
+
+**公开发布的目的**：用户即使忘记代码托管账户密码、失去私有仓库访问权，仍应能匿名取得公开仓库中的加密备份，然后在持有离线解密材料时恢复。因此，实际备份仓库就应是公开仓库；不要要求用户额外创建私有备份仓库，也不要把公开性视为发布阻塞项。
+
+公开并不等于可读：归档使用用户提供的 `age1...` 公钥加密。对应的解密材料只由用户离线保管，Agent 不接触；没有它，任何人都不能解密归档内容。**但 manifest 会暴露主机标识、源路径、归档名、提交时间和 SHA256。** 先向用户展示这些信息并获得确认；用户确认公开前，不适合公开的路径或命名，必须先调整配置或停止。
+
+## 给 Agent：不可违反的安全边界
+
+- 只接受用户提供的 `age1...` 公钥；对应解密材料由用户离线保管，Agent 不接触。
+- 不请求、读取、显示、保存或生成解密材料；不把 token、恢复明文或任何解密材料写入 Git 仓库；不要把明文 secret 写进 Git 仓库。
+- 恢复必需的配置与 secret 可以作为备份源加密收入归档；它们的文件路径会出现在公开 manifest，必须由用户确认可公开。
+- token 只能通过 `scripts/configure-secrets.sh` 的无回显提示输入，不能写入 URL、命令行参数、shell 历史、日志或最终汇总。
+- `BACKUP_PATHS` 必须是存在的绝对路径；不能是仓库本身、仓库子路径、仓库祖先、重复路径或包含符号链接的路径。
+- 首次流程必须是「准备 → 检查 → 用户明确确认 → 发布同一份 prepared 数据」。异常时停止；不得 reset、自动清理历史、rebase、amend 或 force push。
+- 解密与恢复只在用户控制的外部临时目录进行。Agent 不接触解密材料，也不在备份仓库生成恢复明文。
+
+## 给 Agent：先完整阅读当前版本
+
+固定指南 URL 是面向 Agent 的可执行工作指令，必须保持可匿名读取。若固定 URL 匿名读取失败，停止部署并报告文档获取问题；不得改用替代 URL，也不能根据截断片段或旧文档猜测行为：
+
+```bash
+curl -fsSL https://gitlab.com/aloneio/local-backup-push-kit/-/raw/main/docs/llm-setup-guide.zh.md
+```
+
+进入仓库根目录后，完整读取当前文件，不能根据截断片段或旧文档猜测行为：
+
+```bash
+cat README.md
+cat docs/llm-setup-guide.zh.md
+cat hosts/example/backup.conf
+cat scripts/backup.sh
+cat scripts/publish-prepared.sh
+cat scripts/configure-secrets.sh
+cat scripts/install-systemd-timer.sh
+cat scripts/migrate-legacy.sh
+cat scripts/compact-remote-history.sh
+cat scripts/root-launcher.sh
+cat scripts/git-askpass.sh
+cat scripts/lib/common.sh
+cat scripts/lib/git-remotes.sh
+cat scripts/lib/publication-schema.sh
+cat scripts/lib/prepare.sh
+cat scripts/lib/retention.sh
+cat .github/workflows/remote-retention.yml
+cat .gitlab-ci.yml
+```
+
+随后严格按固定指南中的访谈、检查、准备、验证、确认、发布和汇总步骤执行。该指南比 README 更完整；发生冲突时，以当前脚本实际行为为准并停止澄清。
+
+## 给 Agent：用户访谈最小清单
+
+逐项询问并等待用户确认：
+
+1. 公开备份仓库 URL、唯一 canonical 和有序 mirrors；
+2. `BACKUP_BRANCH`；
+3. 用户提供的 `age1...` 公钥；
+4. 精确备份路径与排除规则；
+5. 用户是否确认公开 manifest 中的 host、源路径、时间和 SHA256；
+6. HTTPS token 的无回显输入方式，或 SSH / 本地远端认证方式；
+7. 每 host 的 `BACKUP_RETENTION_COUNT`；
+8. canonical 和每个 mirror 分别托管在 GitHub、GitLab 还是其他平台，以及每个实际 GitHub/GitLab 备份仓库的定时远端压缩是否已启用并验证；
+9. systemd 的运行用户、组与计划，及是否确实需要 root；
+10. 是否存在旧 staged 集合、prepared state、未发布 commit、旧 timer 或分叉 mirrors。
+
+访谈未完成，不写配置、不收集 token、不准备备份、不安装 systemd。
+
+## 给 Agent：首次部署的命令顺序
+
+### 1. 配置公开 remote 与主机文件
+
+在用户已确认的工作仓库中，remote URL 指向公开备份仓库；不能把 token 嵌入 URL：
+
+```bash
+git remote add <canonical-remote> <public-backup-repository-url>
+# 可选：按用户给出的顺序添加公开 mirror
+# git remote add <mirror-remote> <public-mirror-repository-url>
+
+mkdir -p hosts/<host>
+cp hosts/example/backup.conf hosts/<host>/backup.conf
+```
+
+填写 `CONFIG_HOST_ID`、`AGE_RECIPIENT`、`BACKUP_BRANCH`、`BACKUP_REMOTES`、`BACKUP_PATHS`、`TAR_EXCLUDES`、`BACKUP_RETENTION_COUNT`、`BACKUP_LOCK_TIMEOUT`、`BACKUP_RUN_USER`、`BACKUP_RUN_GROUP` 和 `BACKUP_ON_CALENDAR`。不要使用示例中的尖括号占位符。
+
+第一个远端是唯一的 canonical，后续远端都是 mirror；所有远端必须收到同一个不可变 commit OID。HTTP(S) 远端需要 AskPass token；SSH、SCP、`file://` 和本地路径使用 Git 原生认证。
+
+canonical 的目标为空分支时，可以用初始模板提交引导；也可使用用户确认的自定义分支。canonical 已有提交时，本地只能安全快进；本地超前或分叉时必须停止。
+
+### 2. 创建初始干净提交
+
+```bash
+git status --short
+git add -- README.md .gitignore .gitlab-ci.yml .github/workflows/remote-retention.yml docs/llm-setup-guide.zh.md hosts/<host>/backup.conf scripts/*.sh scripts/lib/*.sh tests/*.sh tests/lib/*.sh
+git diff --cached --name-status
+git commit -m "Initialize backup template and host config"
+git status --short
+```
+
+最后一条命令必须没有输出。若 canonical 的分支非空，本地只能安全快进；本地超前或分叉时停止。
+
+### 3. 仅在需要时收集 HTTPS token
+
+```bash
+BACKUP_HOST=<host> scripts/configure-secrets.sh
+```
+
+它无回显收集 HTTP(S) remote token，并写入 host 专用的 `/etc/encrypted-git-backup/<host>.env`。不要导出 token、打印 token 或把 token 写入配置。全为 SSH、SCP、`file://` 或本地远端时跳过此命令。
+
+### 4. 只准备，不发布
+
+```bash
+BACKUP_HOST=<host> BACKUP_PUSH=0 scripts/backup.sh
+```
+
+准备成功后，暂存区只应包含当前 host 的加密归档、checksum、manifest 和 `latest.txt`；prepared state 位于 `.git/local-backup-push-kit/prepared/<host>.state`。不创建备份 commit，不推送。已有 prepared state 时不要再次准备。
+
+### 5. 展示并验证
+
+```bash
+git diff --cached --name-status
+cat backups/<host>/latest.txt
+sha256sum -c backups/<host>/<artifact-id>.sha256
+cat manifests/<host>/<artifact-id>.json
+cat .git/local-backup-push-kit/prepared/<host>.state
+```
+
+确认公开 manifest 元数据、暂存精确路径、SHA256 和 prepared state 一致。然后由**用户控制的外部恢复处理**在仓库外部临时目录中验证可解密、可列出和包含预期文件。若任何检查失败，**不要执行发布命令**。
+
+### 6. 用户明确确认后发布
+
+```bash
+BACKUP_HOST=<host> scripts/publish-prepared.sh
+```
+
+发布前再次检查 canonical。成功远端都指向同一个不可变 commit OID；mirror 失败时只重试尚未成功的 mirror。提交创建后不允许 rebase、amend 或 force push；若发布未完成，旧集合仍可从父提交取得。
+
+`BACKUP_PUSH=1` 是高级兼容快捷方式，不能替代首次部署的检查和用户明确确认。
+
+## 给 Agent：远端容量、历史与多服务器
+
+本地 `BACKUP_RETENTION_COUNT` 只限制**当前分支树中每个 host 可见的完整集合数**；它仍按用户配置决定本地发布时保留的数量。GitHub Actions/GitLab CI 定时压缩会另外固定每个 host 最近两个完整集合。
+
+为避免公开 Git remote 的提交引用和可达历史无限增长，仓库内置两套同一逻辑的远端压缩任务：
+
+- GitHub Actions：`.github/workflows/remote-retention.yml`；
+- GitLab CI：`.gitlab-ci.yml`；
+- 实际压缩器：`scripts/compact-remote-history.sh`。
+
+它们每天定时运行，也可手动触发；对每一个备份分支构造无父提交的受验证快照，**每个 host 只保留最新两个完整集合**（archive、checksum、manifest 和正确的 `latest.txt`），并以 `force-with-lease` 替换该分支。这样普通 refs 不会随着每日备份无限累积；被移出 refs 的旧对象由 GitHub/GitLab 按其垃圾回收与保留策略异步处理，Agent 不得承诺立刻从平台缓存、fork、clone 或历史外部副本消失。
+
+压缩器会先校验每个集合的文件形状、checksum、manifest、`latest.txt` 与路径；存在不完整集合、异常生成路径或意外 metadata 时会停止并**不改写**该分支。它只能在 CI 环境设置 `BACKUP_COMPACTION_CI=1` 后运行；不要从服务器备份任务或日常终端运行它。
+
+启用规则按**实际远端仓库逐个计算**，不是为整组 canonical/mirrors 二选一：
+
+- 每个 GitHub 备份仓库：只要 `.github/workflows/remote-retention.yml` 位于默认分支，workflow 的 cron 就会自动运行，不需要额外开关变量。Agent 必须检查 Actions 已启用、workflow 具有 `contents: write`、目标分支允许 GitHub Actions 使用 `force-with-lease` 更新，并用 `gh workflow view remote-retention.yml --repo <owner>/<repo>` 与 `gh run list --workflow remote-retention.yml --repo <owner>/<repo> --limit 1` 验证 workflow 和最近一次运行。
+- 每个 GitLab 备份仓库：`.gitlab-ci.yml` 本身**不会创建定时任务**。Agent 必须在该实际项目创建并验证一个 active Pipeline Schedule；schedule 可指向含 `.gitlab-ci.yml` 的默认分支，job 会以 `BACKUP_COMPACTION_ALL_BRANCHES=1` 清理该项目的所有备份分支。先用 `glab api projects/<url-encoded-project>/pipeline_schedules` 查询；已有相同 ref/cron 的 active schedule 时复用，不要重复创建。不存在时，再用 `glab api --method POST projects/<url-encoded-project>/pipeline_schedules -f description='Compact public backup history' -f ref='<default-branch>' -f cron='23 3 * * *' -f cron_timezone='UTC' -F active=true` 创建并重新查询核对。项目还必须允许 CI job token 写入，并允许 `force-with-lease` 更新目标备份分支。
+- canonical 和 mirrors 若分别存在于 GitHub、GitLab，**每个实际远端仓库都必须有自己的平台原生定时压缩**；不能只清理 canonical 而让 mirror 历史无限增长。GitHub 仓库运行 GitHub Actions，GitLab 仓库运行 GitLab Pipeline Schedule，同时存在是正确配置。只有多个调度器写入同一个物理 remote 时才属于错误竞争配置。
+
+压缩器的 `force-with-lease` 会在分支发生竞争更新时安全失败；Agent 必须记录每个 remote 的平台、定时任务状态、写权限和最近一次运行结果。
+
+**一个公开仓库可以备份多个服务器。** 每个服务器必须使用唯一的 `BACKUP_HOST`/`CONFIG_HOST_ID`，各自的 `hosts/<host>/backup.conf`，以及同一组公开 canonical/mirrors。数据按 `backups/<host>/` 和 `manifests/<host>/` 分区；远端压缩与本地保留都只删除当前 host 的完整集合，不会删除其他 host 的集合。每个 host 也有独立 prepared state、systemd service、timer 与 HTTPS env 文件。
+
+对于无人值守的多服务器部署，Agent 应为每个 host 使用独立 `BACKUP_BRANCH`，例如 `backup/<host>`。不同 host 的分支可在同一公开仓库、同一 remote 中独立推进与压缩，避免一个 host 发布或压缩使另一个 host 的 prepared base 失效。只有部署了跨服务器外部协调锁时，才可让多个 host 共用同一 `BACKUP_BRANCH`。
+
+多台服务器各自使用独立 clone 时，不同服务器的本地 `flock` 不能跨服务器协调。两台服务器从同一 canonical base 同时准备时，先发布的一台会推进 canonical；另一台会安全停止并报告 `canonical moved after preparation; reprepare required`，不得自动合并或强推。压缩后，干净工作副本会只接受已校验的 CI 快照并安全同步；但已有 prepared state 时不得继续发布，必须重新准备。为减少共享分支上的正常冲突，应为各 host 的 timer 设置错开的 `BACKUP_ON_CALENDAR`/jitter，或使用一个外部协调器；一次只让一个**共享分支**上的 host 完成“准备到发布”流程。
+
+## 给 Agent：本地保留
+
+本地保留按每个 host 单独计算，一个完整集合由加密归档、对应 checksum 和 manifest 组成；孤立文件会保留并报告，不会被当成可删除备份。日常备份发布仍使用本地保留数量；远端 CI 压缩则固定仅保留每 host 最近两个完整集合并重写该分支历史。
+
+### 7. 可选 systemd
+
+先 dry run：
+
+```bash
+BACKUP_HOST=<host> BACKUP_INSTALL_DRY_RUN=1 scripts/install-systemd-timer.sh
+```
+
+用户确认 unit 中的运行用户、组、计划、工作目录和环境文件后才安装：
+
+```bash
+BACKUP_HOST=<host> scripts/install-systemd-timer.sh
+```
+
+默认选择非 root。只有用户明确确认确实需要读取受限路径时才选择 `BACKUP_RUN_USER=root`。
+
+## 给 Agent：停止与迁移
+
+出现以下任一情况，停止并报告，不要猜测或自动修复：无有效 `age1...` 公钥、公开 manifest 元数据未经确认、路径不安全、仓库不干净、canonical/mirror 分叉、canonical 在准备后移动、恢复验证失败、旧 staged 集合、已有 prepared state 或旧 timer。
+
+旧部署先运行只读报告：
+
+```bash
+BACKUP_HOST=<host> scripts/migrate-legacy.sh
+```
+
+仅在用户单独确认旧 staged 集合完整且可采用后才运行：
+
+```bash
+BACKUP_HOST=<host> scripts/migrate-legacy.sh --adopt-staged
+```
+
+## 给 Agent：交付汇总
+
+最终汇总不能包含 token、公钥完整值、解密材料或恢复明文。至少记录：host、公开仓库 URL、canonical、mirrors、branch、用户确认的公开 manifest 元数据、备份路径、排除规则、保留数量、prepared base OID、备份 commit OID、各远端 OID、待重试 mirrors、**每个实际远端仓库的平台/定时压缩状态/最近运行结果**、外部恢复验证结果、systemd 状态和最终状态。
+
+## 文件说明
+
+- `docs/llm-setup-guide.zh.md`：面向 Agent 的完整、可执行部署指令；固定 URL 指向此文件。
+- `scripts/compact-remote-history.sh`：仅供 GitHub Actions 或 GitLab CI 调用的远端分支快照压缩器，固定每 host 保留最近两个完整集合。
+- `.github/workflows/remote-retention.yml` 与 `.gitlab-ci.yml`：定时或手动运行远端压缩；每个实际 GitHub/GitLab 备份仓库都要启用并验证自己的平台原生定时任务。
+- `scripts/publish-prepared.sh`：发布已经验证的 prepared 数据。
+- `scripts/configure-secrets.sh`：无回显保存 HTTP(S) remote token。
+- `scripts/install-systemd-timer.sh`：渲染或安装 host 专用 systemd timer。
+- `scripts/migrate-legacy.sh`：检查并在显式确认后采用旧 staged 集合。
+- `hosts/example/backup.conf`：可复制的脱敏配置模板。
