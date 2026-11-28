@@ -1,0 +1,18 @@
+stages:
+  - compact
+
+remote-retention:
+  stage: compact
+  image: alpine:3.20
+  resource_group: public-backup-history-compaction
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+  before_script:
+    - apk add --no-cache bash git python3
+    - git config user.name backup-compactor
+    - git config user.email backup-compactor@example.invalid
+    - git remote set-url origin "https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
+    - git fetch --no-tags origin '+refs/heads/*:refs/remotes/origin/*'
+  script:
+    - BACKUP_COMPACTION_CI=1 BACKUP_COMPACTION_REMOTE=origin BACKUP_COMPACTION_ALL_BRANCHES=1 BACKUP_COMPACTION_KEEP=2 bash scripts/compact-remote-history.sh
